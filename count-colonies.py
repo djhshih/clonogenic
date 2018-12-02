@@ -1,7 +1,17 @@
 import numpy as np
 import cv2 as cv
 
-img = cv.imread("EPSON005.TIF", cv.IMREAD_GRAYSCALE)
+img = cv.imread("EPSON005.TIF")
+
+cv.imshow("image", img)
+cv.imshow("blue", img[:,:,0])
+cv.imshow("green", img[:,:,1])
+cv.imshow("red", img[:,:,2])
+cv.waitKey(0)
+
+img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+
+
 img = cv.medianBlur(img, 5)
 
 # convert to grayscale
@@ -61,7 +71,7 @@ def process_well_hough(img, well):
 #process_well_hough(wells[0])
 
 
-well = wells[0]
+well = wells[1]
 x0, y0, r = well
 
 wimg = img[(y0-r):(y0+r), (x0-r):(x0+r)]
@@ -81,7 +91,53 @@ bimg = cv.GaussianBlur(wimg, (7, 7), 0)
 cv.imshow("blur", bimg)
 cv.waitKey(0)
 
-lg = cv.Laplacian(bimg, cv.CV_16S, 11)
+fimg = np.fft.fftshift(cv.dft(np.float32(wimg), flags = cv.DFT_COMPLEX_OUTPUT))
+lmag = np.log(1 + cv.magnitude(fimg[:,:,0], fimg[:,:, 1]))
+#from matplotlib import pyplot as plt
+#plt.imshow(lmag, cmap="gray")
+#plt.show()
+#cv.waitKey(0)
+
+hp_sigma = 3
+lp_sigma = 60
+
+wheight = wimg.shape[0]
+wwidth = wimg.shape[1]
+ksize = min(wheight, wwidth)
+hpf = cv.getGaussianKernel(ksize, hp_sigma)
+hpf = hpf / hpf.max()
+hpf = 1 - (hpf * hpf.T)
+print("hpf: ", hpf)
+cv.imshow("highpass_filter", hpf)
+cv.waitKey(0)
+
+lpf = cv.getGaussianKernel(ksize, lp_sigma)
+lpf = lpf * lpf.T
+lpf = lpf / lpf.max()
+cv.imshow("lowpass_filter", lpf)
+cv.waitKey(0)
+
+gpf = np.multiply(lpf, hpf)
+print("min: {}, max: {}".format(gpf.min(), gpf.max()))
+cv.imshow("filter", gpf / gpf.max())
+cv.waitKey(0)
+
+fimgf = np.dstack((np.multiply(fimg[:,:,0], gpf), fimg[:,:,1]))
+
+gimg = cv.idft(np.fft.ifftshift(fimgf))
+#gimg = cv.idft(np.fft.ifftshift(fimg))
+print(gimg.dtype)
+print(gimg.shape)
+gimg = cv.magnitude(gimg[:,:,0], gimg[:,:,1])
+gimg = np.uint8((gimg / gimg.max()) * 255)
+print(gimg.max())
+cv.imshow("gaussian_bandpass_filter", gimg)
+cv.waitKey(0)
+
+
+
+
+lg = cv.Laplacian(gimg, cv.CV_16S, 11)
 #kernel = np.ones((3,3))
 kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
 # use erode to find min of neighbourhood
@@ -90,7 +146,11 @@ minlg = cv.morphologyEx(lg, cv.MORPH_ERODE, kernel)
 maxlg = cv.morphologyEx(lg, cv.MORPH_DILATE, kernel)
 # zero crossing occurs at a positive pixel with an adjacent negative pixel or
 # a negative pixel with an adjacent positive pixel 
-zcross = np.logical_or(np.logical_and(minlg < 0, lg > 0), np.logical_and(maxlg > 0, lg < 0))
+print(np.histogram(lg))
+threshold = 3
+zcross = np.logical_or(
+    np.logical_and(minlg < threshold, lg > threshold),
+    np.logical_and(maxlg > threshold, lg < threshold))
 
 cv.imshow("zero_crossing", zcross.astype(np.uint8)*255)
 cv.waitKey(0)
@@ -109,13 +169,48 @@ ledge = np.logical_and(sd > 2, zcross).astype(np.uint8)*255
 cv.imshow("laplacian_edge", ledge)
 cv.waitKey(0)
 
-ledge = cv.morphologyEx(ledge, cv.MORPH_CLOSE, np.ones((3,3)))
+
+#kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+ledge = cv.morphologyEx(ledge, cv.MORPH_CLOSE, kernel)
 #ledge = cv.medianBlur(ledge, 5)
 cv.imshow("laplacian_edge", ledge)
 cv.waitKey(0)
 
+
+ledge2, contours0, hierarchy = cv.findContours(ledge, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+print(hierarchy)
+
+cv.imshow("contours", ledge2)
+cv.waitKey(0)
+
+contours = [cv.approxPolyDP(c, 3, True) for c in contours0]
+print(contours)
+vis = cv.drawContours(np.zeros((wheight, wwidth), np.uint8), contours, -1, 255, thickness=-1)
+cv.imshow("filled_contours", vis)
+cv.waitKey(0)
+
+
+
 cedge = cv.Canny(bimg, 30, 15, 3)
 cv.imshow("canny_edge", cedge)
+cv.waitKey(0)
+
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+cedge = cv.morphologyEx(cedge, cv.MORPH_CLOSE, kernel)
+cv.imshow("canny_edge", cedge)
+cv.waitKey(0)
+
+
+cedge2, contours0, hierarchy = cv.findContours(cedge, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+
+cv.imshow("contours", cedge2)
+cv.waitKey(0)
+
+contours = [cv.approxPolyDP(c, 1, True) for c in contours0]
+print("hierarchy", hierarchy)
+vis = cv.drawContours(np.zeros((wheight, wwidth), np.uint8), contours, -1, 255, thickness=-1)
+cv.imshow("canny_filled_contours", vis)
 cv.waitKey(0)
 
 
