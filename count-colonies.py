@@ -83,6 +83,8 @@ x0, y0, r = well
 wimg = img[(y0-r):(y0+r), (x0-r):(x0+r)]
 wimg = cv.bitwise_not(wimg)
 
+wcimg = cimg[(y0-r):(y0+r), (x0-r):(x0+r)]
+
 def apply_circular_mask(wimg, border=10):
     mask = np.zeros(wimg.shape, np.uint8)
     cv.circle(mask, (r, r), r-border, 255, -1)
@@ -246,6 +248,17 @@ cv.waitKey(0)
 timg = cv.medianBlur(timg, 5)
 #timg = cv.morphologyEx(timg, cv.MORPH_OPEN, np.ones((3,3)))
 cv.imshow("athreshold", timg)
+cv.waitKey(0)
+
+cc = cv.connectedComponentsWithStats(timg, 8, cv.CV_32S)
+
+centroids = cc[3]
+
+for c in centroids:
+    x0, y0 = np.uint16(np.around(c))
+    cv.circle(wcimg, (x0, y0), 2, (0, 0, 255), 2)
+
+cv.imshow("athreshold", wcimg)
 cv.waitKey(0)
 
 
