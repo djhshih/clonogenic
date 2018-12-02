@@ -4,14 +4,20 @@ import cv2 as cv
 img = cv.imread("EPSON005.TIF")
 
 cv.imshow("image", img)
-cv.imshow("blue", img[:,:,0])
-cv.imshow("green", img[:,:,1])
-cv.imshow("red", img[:,:,2])
+#cv.imshow("blue", img[:,:,0])
+#cv.imshow("green", img[:,:,1])
+#cv.imshow("red", img[:,:,2])
+cv.waitKey(0)
+
+hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
+lower = np.array((120, 40, 40))
+upper = np.array((170, 255, 255))
+mask_color = cv.inRange(hsv, lower, upper)
+simg = cv.bitwise_and(img, img, mask=mask_color)
+cv.imshow("selected_colour", simg)
 cv.waitKey(0)
 
 img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-
-
 img = cv.medianBlur(img, 5)
 
 # convert to grayscale
