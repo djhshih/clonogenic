@@ -26,6 +26,25 @@ simg = cv.bitwise_and(vimg, vimg, mask=mask_color)
 cv.imshow("selected_colour", simg)
 cv.waitKey(0)
 
+ref_color = (95, 0, 27)
+max_dist = np.sqrt(3.0 * 255**2)
+
+cimgf = cimg.astype(np.float)
+delta_b = cimgf[:,:,0] - ref_color[0]
+delta_r = cimgf[:,:,1] - ref_color[1]
+delta_g = cimgf[:,:,2] - ref_color[2]
+delta = np.sqrt(np.multiply(delta_b, delta_b) + np.multiply(delta_r, delta_r) + np.multiply(delta_g, delta_g))
+sim = 1 - delta / max_dist
+cv.imshow("colour_sim", sim)
+cv.waitKey(0)
+
+
+sim_img = np.uint8(sim * 255)
+tsim = cv.adaptiveThreshold(sim_img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 0)
+cv.imshow("colour_sim_threshold", tsim)
+cv.waitKey(0)
+
+
 #kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
 #seimg = cv.morphologyEx(simg, cv.MORPH_ERODE, kernel)
 #cv.imshow("bona_fide", seimg)
