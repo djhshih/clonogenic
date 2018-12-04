@@ -35,12 +35,13 @@ delta_r = cimgf[:,:,1] - ref_color[1]
 delta_g = cimgf[:,:,2] - ref_color[2]
 delta = np.sqrt(np.multiply(delta_b, delta_b) + np.multiply(delta_r, delta_r) + np.multiply(delta_g, delta_g))
 sim = 1 - delta / max_dist
-cv.imshow("colour_sim", sim)
+
+sim_img = np.uint8(sim * 255)
+cv.imshow("colour_sim", sim_img)
 cv.waitKey(0)
 
 
-sim_img = np.uint8(sim * 255)
-tsim = cv.adaptiveThreshold(sim_img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 0)
+tsim = cv.adaptiveThreshold(sim_img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, -2)
 cv.imshow("colour_sim_threshold", tsim)
 cv.waitKey(0)
 
