@@ -1,27 +1,36 @@
 import numpy as np
 import cv2 as cv
 
-img = cv.imread("EPSON005.TIF")
+cimg = cv.imread("EPSON005.TIF")
 
-cv.imshow("image", img)
-#cv.imshow("blue", img[:,:,0])
-#cv.imshow("green", img[:,:,1])
-#cv.imshow("red", img[:,:,2])
+cv.imshow("image", cimg)
+#cv.imshow("blue", cimg[:,:,0])
+#cv.imshow("green", cimg[:,:,1])
+#cv.imshow("red", cimg[:,:,2])
 cv.waitKey(0)
 
-hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
-lower = np.array((120, 40, 40))
+# convert to grayscale
+img = cv.cvtColor(cimg, cv.COLOR_BGR2GRAY)
+img = cv.medianBlur(img, 5)
+
+hsv = cv.cvtColor(cimg, cv.COLOR_BGR2HSV)
+#cv.imshow("hsvb", hsv)
+
+lower = np.array((120, 50, 50))
 upper = np.array((170, 255, 255))
 mask_color = cv.inRange(hsv, lower, upper)
-simg = cv.bitwise_and(img, img, mask=mask_color)
+kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+mask_color = cv.morphologyEx(mask_color, cv.MORPH_OPEN, kernel)
+vimg = cv.bitwise_not(img)
+simg = cv.bitwise_and(vimg, vimg, mask=mask_color)
 cv.imshow("selected_colour", simg)
 cv.waitKey(0)
 
-img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-img = cv.medianBlur(img, 5)
+#kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+#seimg = cv.morphologyEx(simg, cv.MORPH_ERODE, kernel)
+#cv.imshow("bona_fide", seimg)
+#cv.waitKey(0)
 
-# convert to grayscale
-cimg = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
 
 print(img.shape)
 
@@ -210,7 +219,7 @@ cv.imshow("canny_edge", cedge)
 cv.waitKey(0)
 
 
-cedge2, contours0, hierarchy = cv.findContours(cedge, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+cedge2, contours0, hierarchy = cv.findContours(cedge, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
 
 cv.imshow("contours", cedge2)
 cv.waitKey(0)
