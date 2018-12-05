@@ -1,75 +1,159 @@
+from matplotlib import pyplot as plt
 import numpy as np
 import cv2 as cv
 
 cimg = cv.imread("EPSON005.TIF")
 
+def show_color_channels(cimg):
+    cv.imshow("blue", cimg[:,:,0])
+    cv.imshow("green", cimg[:,:,1])
+    cv.imshow("red", cimg[:,:,2])
+
 cv.imshow("image", cimg)
-#cv.imshow("blue", cimg[:,:,0])
-#cv.imshow("green", cimg[:,:,1])
-#cv.imshow("red", cimg[:,:,2])
-cv.waitKey(0)
 
 # convert to grayscale
 img = cv.cvtColor(cimg, cv.COLOR_BGR2GRAY)
+
+# median blur
 img = cv.medianBlur(img, 5)
 
+# identify most common hue from among saturated pixels
 hsv = cv.cvtColor(cimg, cv.COLOR_BGR2HSV)
-#cv.imshow("hsvb", hsv)
+# filter for pixels with > 50% saturation
+idx = hsv[:,:,1] > 255/2
+cv.imshow("saturated", cv.bitwise_and(cimg, cimg, mask=np.uint8(idx)))
+cv.waitKey(0)
+hsv_hist = np.histogram(hsv[:,:,0][idx], bins=np.arange(180+1))
+mode_hue = hsv_hist[1][np.argmax(hsv_hist[0])]
 
-lower = np.array((120, 50, 50))
-upper = np.array((170, 255, 255))
-mask_color = cv.inRange(hsv, lower, upper)
-kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
-mask_color = cv.morphologyEx(mask_color, cv.MORPH_OPEN, kernel)
-vimg = cv.bitwise_not(img)
-simg = cv.bitwise_and(vimg, vimg, mask=mask_color)
-cv.imshow("selected_colour", simg)
+# use HSV color space to select desired colours
+
+# Filter image for a color range
+# @param cimg   BGR color image
+# @param hue    hue value in range [0, 180]
+#                (note: the common range is [0, 360])
+# @param tol    tolerance level in (0, 1)
+# @param lower  lower bound in HSV space
+# @param upper  upper bound in HSV space
+def filter_hsv_range(cimg, hue=None, lower=None, upper=None, tol=0.1):
+    hsv = cv.cvtColor(cimg, cv.COLOR_BGR2HSV)
+    if hue is None:
+        hue = 90
+    delta = 180 * tol
+    if lower is None:
+        lower = (max(0, hue - delta), 50, 50)
+    if upper is None:
+        upper = (min(180, hue + delta), 255, 255)
+    mask_color = cv.inRange(hsv, lower, upper)
+    kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+    mask_color = cv.morphologyEx(mask_color, cv.MORPH_OPEN, kernel)
+    vimg = cv.bitwise_not(img)
+    return cv.bitwise_and(vimg, vimg, mask=mask_color)
+
+# filter for violet color
+simg = filter_hsv_range(cimg, mode_hue)
+cv.imshow("colour_filtered", simg)
 cv.waitKey(0)
 
-ref_color = (95, 0, 27)
-max_dist = np.sqrt(3.0 * 255**2)
-
-cimgf = cimg.astype(np.float)
-delta_b = cimgf[:,:,0] - ref_color[0]
-delta_r = cimgf[:,:,1] - ref_color[1]
-delta_g = cimgf[:,:,2] - ref_color[2]
-delta = np.sqrt(np.multiply(delta_b, delta_b) + np.multiply(delta_r, delta_r) + np.multiply(delta_g, delta_g))
-sim = 1 - delta / max_dist
-
-sim_img = np.uint8(sim * 255)
-cv.imshow("colour_sim", sim_img)
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+seimg = cv.morphologyEx(simg, cv.MORPH_ERODE, kernel)
+cv.imshow("bona_fide", seimg)
 cv.waitKey(0)
 
+def bgr_color_euclidean_similarity(cimg, ref_color):
+    cimgf = cimg.astype(np.float)
+    delta_b = (cimgf[:,:,0] - ref_color[0]) / 255.0
+    delta_r = (cimgf[:,:,1] - ref_color[1]) / 255.0
+    delta_g = (cimgf[:,:,2] - ref_color[2]) / 255.0
+    delta = np.sqrt(
+        np.multiply(delta_b, delta_b) + 
+        np.multiply(delta_r, delta_r) + 
+        np.multiply(delta_g, delta_g))
+    return 1 - delta / np.sqrt(3.0)
 
-tsim = cv.adaptiveThreshold(sim_img, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, -2)
-cv.imshow("colour_sim_threshold", tsim)
+def bgr_color_maxabs_similarity(cimg, ref_color):
+    cimgf = cimg.astype(np.float)
+    delta_b = (cimgf[:,:,0] - ref_color[0]) / 255.0
+    delta_r = (cimgf[:,:,1] - ref_color[1]) / 255.0
+    delta_g = (cimgf[:,:,2] - ref_color[2]) / 255.0
+    delta = np.maximum(
+        np.maximum(
+            np.abs(delta_b),
+            np.abs(delta_r)),
+        np.abs(delta_g))
+    return 1 - delta
+
+def hsv_color_similarity(cimg, ref_hue):
+    hsv = cv.cvtColor(cimg, cv.COLOR_BGR2HSV).astype(np.float)
+    # similarity in hue
+    hue_sim = 1 - np.abs(hsv[:,:,0] - ref_hue) / 180.0
+    # scale by saturation
+    return hue_sim * (hsv[:,:,1]/255.0)
+
+def filter_bgr_similarity(cimg, ref_color):
+    s = bgr_color_euclidean_similarity(cimg, ref_color)
+    simg = np.uint8(s * 255)
+    #cv.imshow("colour_sim", simg)
+    #cv.waitKey(0)
+    tsimg = cv.adaptiveThreshold(simg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv.THRESH_BINARY, 11, -2)
+    #_, tsimg = cv.threshold(simg, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+    #cv.imshow("colour_sim_threshold", tsim)
+    #cv.waitKey(0)
+    kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+    tsimg = cv.morphologyEx(tsimg, cv.MORPH_OPEN, kernel)
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+    tsimg = cv.morphologyEx(tsimg, cv.MORPH_CLOSE, kernel)
+    return tsimg
+
+def filter_hsv_similarity(cimg, ref_hue):
+    s = hsv_color_similarity(cimg, ref_hue)
+    simg = np.uint8(s * 255)
+    #tsimg = cv.adaptiveThreshold(simg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, 
+    #    cv.THRESH_BINARY, 19, -3)
+    _, tsimg = cv.threshold(simg, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+    cv.imshow("colour_sim_threshold", tsimg)
+    cv.waitKey(0)
+    kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+    tsimg = cv.morphologyEx(tsimg, cv.MORPH_OPEN, kernel)
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+    tsimg = cv.morphologyEx(tsimg, cv.MORPH_CLOSE, kernel)
+    return tsimg
+
+
+tsimg = filter_bgr_similarity(cimg, (95, 0, 27))
+cv.imshow("bgr_sim_threshold", tsimg)
 cv.waitKey(0)
 
+simg = hsv_color_similarity(cimg, mode_hue)
+cv.imshow("hsv_sim", simg)
+cv.waitKey(0)
 
-#kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
-#seimg = cv.morphologyEx(simg, cv.MORPH_ERODE, kernel)
-#cv.imshow("bona_fide", seimg)
-#cv.waitKey(0)
-
+tsimg = filter_hsv_similarity(cimg, mode_hue)
+cv.imshow("hsv_sim_threshold", tsimg)
+cv.waitKey(0)
 
 print(img.shape)
 
-height= img.shape[0]
-width = img.shape[1]
+# @return list of wells;
+#         each well is of the form (x0, y0, r),
+#         where (x0, y0) is the center and r is the radius
+def find_wells(img, plate_shape):
+    height = img.shape[0]
+    width = img.shape[1]
+    max_radius = int(min(
+        (img.shape[1] / plate_shape[1]),
+        (img.shape[0] / plate_shape[0])) / 2)
+    wells = cv.HoughCircles(img, cv.HOUGH_GRADIENT, 2, max_radius,
+        param1 = 100, param2 = 100,
+        minRadius = int(max_radius / 2), maxRadius = max_radius)[0]
+    wells = np.uint16(np.around(wells))
+    return sorted(wells, key = lambda well: (well[0] )
 
-plate_nrows = 2
-plate_ncols = 3
-
-max_radius = int(min((width / plate_ncols), (height / plate_nrows)) / 2)
-print(max_radius)
-
-wells = cv.HoughCircles(img, cv.HOUGH_GRADIENT, 2, max_radius,
-    param1 = 100, param2 = 100,
-    minRadius = int(max_radius / 2), maxRadius = max_radius)[0]
-wells = np.uint16(np.around(wells))
+wells = find_wells(img, (2,3))
 print(wells)
 
-# TODO sort wells by coordinates
+stop()
 
 for w in wells:
     x0, y0, r = w
