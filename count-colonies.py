@@ -4,6 +4,7 @@ import cv2 as cv
 
 cimg = cv.imread("EPSON005.TIF")
 
+# Show each color channel
 def show_color_channels(cimg):
     cv.imshow("blue", cimg[:,:,0])
     cv.imshow("green", cimg[:,:,1])
@@ -135,6 +136,44 @@ cv.waitKey(0)
 
 print(img.shape)
 
+# Sort wells by x and y coordinates, allowing for imprecision in coordinates
+# @param wells  list of list [x0, y0, r]
+def sort_wells(wells):
+    xs = np.sort([w[0] for w in wells])
+    ys = np.sort([w[1] for w in wells])
+    print(xs)
+
+    # find mean radius
+    r = np.mean([w[2] for w in wells])
+
+    # Discover grid coordinates
+    # starting with the smallest coordinate,
+    # serially find the next coordinate that is sufficiently far (2r)
+    # from the previous coordinate
+    def find_coords(ps):
+        coords = [ps[0]]
+        cur_p = ps[0]
+        if len(ps) > 1:
+            for p in ps[1:]:
+                if p > cur_p + 2*r:
+                    coords.append(p)
+                    cur_p = p
+        return coords
+
+    coords_x = find_coords(xs)
+    coords_y = find_coords(ys)
+
+    # Snap a position to the first sufficiently near coordinate
+    def snap(p, coords):
+        for c in coords:
+            if abs(p - c) < r:
+                return c
+
+    # sort wells by the snapped coordinates 
+    return sorted( wells, key = lambda well:
+        (snap(well[0], coords_x), snap(well[1], coords_y)) )
+
+
 # @return list of wells;
 #         each well is of the form (x0, y0, r),
 #         where (x0, y0) is the center and r is the radius
@@ -148,12 +187,11 @@ def find_wells(img, plate_shape):
         param1 = 100, param2 = 100,
         minRadius = int(max_radius / 2), maxRadius = max_radius)[0]
     wells = np.uint16(np.around(wells))
-    return sorted(wells, key = lambda well: (well[0] )
+    return sort_wells(wells)
 
 wells = find_wells(img, (2,3))
 print(wells)
 
-stop()
 
 for w in wells:
     x0, y0, r = w
