@@ -197,8 +197,6 @@ for w in wells:
     x0, y0, r = w
     # draw the perimeter
     cv.circle(cimg, (x0, y0), r, (0, 255, 0), 2)
-    # draw the center
-    cv.circle(cimg, (x0, y0), 2, (0, 0, 255), 3)
 
 cv.imshow("Detected wells", cimg)
 cv.waitKey(0)
@@ -207,28 +205,22 @@ cv.waitKey(0)
 def process_well_hough(img, well):
     x0, y0, r = well
     wimg = img[(y0-r):(y0+r), (x0-r):(x0+r)]
-    wcimg = cimg[(y0-r):(y0+r), (x0-r):(x0+r)]
+    #wcimg = cimg[(y0-r):(y0+r), (x0-r):(x0+r)]
 
     circles = cv.HoughCircles(wimg, cv.HOUGH_GRADIENT, 1, 3,
         param1 = 30, param2 = 20,
         minRadius = 3, maxRadius = 20)
-    print(circles)
-
     if circles is not None:
         circles = circles[0]
         circles = np.uint16(np.around(circles))
-        print(circles)
-        for c in circles:
-            x0, y0, r = c
-            cv.circle(wcimg, (x0, y0), r, (255, 0, 0), 2)
 
-    cv.imshow("well", wcimg)
-    cv.waitKey(0)
+    #cv.imshow("well", wcimg)
+    #cv.waitKey(0)
 
 #process_well_hough(wells[0])
 
 
-well = wells[1]
+well = wells[0]
 x0, y0, r = well
 
 wimg = img[(y0-r):(y0+r), (x0-r):(x0+r)]
