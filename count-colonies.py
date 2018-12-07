@@ -15,19 +15,20 @@ cv.imshow("image", cimg)
 # convert to grayscale
 img = cv.cvtColor(cimg, cv.COLOR_BGR2GRAY)
 
+print(img.shape)
+
 # median blur
 img = cv.medianBlur(img, 5)
 
 # identify most common hue from among saturated pixels
-hsv = cv.cvtColor(cimg, cv.COLOR_BGR2HSV)
-# filter for pixels with > 50% saturation
-idx = hsv[:,:,1] > 255/2
-cv.imshow("saturated", cv.bitwise_and(cimg, cimg, mask=np.uint8(idx)))
-cv.waitKey(0)
-hsv_hist = np.histogram(hsv[:,:,0][idx], bins=np.arange(180+1))
-mode_hue = hsv_hist[1][np.argmax(hsv_hist[0])]
-
-# use HSV color space to select desired colours
+def find_mode_hue(cimg):
+    hsv = cv.cvtColor(cimg, cv.COLOR_BGR2HSV)
+    # filter for pixels with > 50% saturation
+    idx = hsv[:,:,1] > 255/2
+    #cv.imshow("saturated", cv.bitwise_and(cimg, cimg, mask=np.uint8(idx)))
+    #cv.waitKey(0)
+    hsv_hist = np.histogram(hsv[:,:,0][idx], bins=np.arange(180+1))
+    return hsv_hist[1][np.argmax(hsv_hist[0])]
 
 # Filter image for a color range
 # @param cimg   BGR color image
@@ -37,7 +38,9 @@ mode_hue = hsv_hist[1][np.argmax(hsv_hist[0])]
 # @param lower  lower bound in HSV space
 # @param upper  upper bound in HSV space
 def filter_hsv_range(cimg, hue=None, lower=None, upper=None, tol=0.1):
+    # use HSV color space to select desired colours
     hsv = cv.cvtColor(cimg, cv.COLOR_BGR2HSV)
+    img = cv.cvtColor(cimg, cv.COLOR_BGR2GRAY)
     if hue is None:
         hue = 90
     delta = 180 * tol
@@ -51,6 +54,8 @@ def filter_hsv_range(cimg, hue=None, lower=None, upper=None, tol=0.1):
     vimg = cv.bitwise_not(img)
     return cv.bitwise_and(vimg, vimg, mask=mask_color)
 
+mode_hue = find_mode_hue(cimg)
+
 # filter for violet color
 simg = filter_hsv_range(cimg, mode_hue)
 cv.imshow("colour_filtered", simg)
@@ -58,8 +63,8 @@ cv.waitKey(0)
 
 kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
 seimg = cv.morphologyEx(simg, cv.MORPH_ERODE, kernel)
-cv.imshow("bona_fide", seimg)
-cv.waitKey(0)
+#cv.imshow("bona_fide", seimg)
+#cv.waitKey(0)
 
 def bgr_color_euclidean_similarity(cimg, ref_color):
     cimgf = cimg.astype(np.float)
@@ -94,13 +99,7 @@ def hsv_color_similarity(cimg, ref_hue):
 def filter_bgr_similarity(cimg, ref_color):
     s = bgr_color_euclidean_similarity(cimg, ref_color)
     simg = np.uint8(s * 255)
-    #cv.imshow("colour_sim", simg)
-    #cv.waitKey(0)
-    tsimg = cv.adaptiveThreshold(simg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        cv.THRESH_BINARY, 11, -2)
-    #_, tsimg = cv.threshold(simg, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
-    #cv.imshow("colour_sim_threshold", tsim)
-    #cv.waitKey(0)
+    _, tsimg = cv.threshold(simg, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
     kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
     tsimg = cv.morphologyEx(tsimg, cv.MORPH_OPEN, kernel)
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
@@ -110,21 +109,34 @@ def filter_bgr_similarity(cimg, ref_color):
 def filter_hsv_similarity(cimg, ref_hue):
     s = hsv_color_similarity(cimg, ref_hue)
     simg = np.uint8(s * 255)
-    #tsimg = cv.adaptiveThreshold(simg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, 
-    #    cv.THRESH_BINARY, 19, -3)
-    _, tsimg = cv.threshold(simg, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
-    cv.imshow("colour_sim_threshold", tsimg)
-    cv.waitKey(0)
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+    simg = cv.morphologyEx(simg, cv.MORPH_OPEN, kernel)
+    #cv.imshow("hsv_sim", simg)
+    #cv.waitKey(0)
+#    bsimg = cv.blur(simg, (9, 9), 0)
+#    cv.imshow("bsimg", bsimg)
+#    cv.waitKey(0)
+#    dimg = cv.subtract(bsimg, simg)
+#    cv.imshow("dimg", dimg)
+#    cv.waitKey(0)
+#    print(dimg)
+#    _, tdimg = cv.threshold(dimg, 20, 255, cv.THRESH_BINARY_INV);
+#    cv.imshow("tdimg", tdimg)
+#    cv.waitKey(0)
+    tsimg = cv.adaptiveThreshold(simg, 255, cv.ADAPTIVE_THRESH_MEAN_C, 
+        cv.THRESH_BINARY_INV, 11, 2)
+    dimg = cv.subtract(simg, tsimg)
+    #cv.imshow("dimg", dimg)
+    #cv.waitKey(0)
+    _, tsimg = cv.threshold(dimg, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
     kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
     tsimg = cv.morphologyEx(tsimg, cv.MORPH_OPEN, kernel)
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
-    tsimg = cv.morphologyEx(tsimg, cv.MORPH_CLOSE, kernel)
     return tsimg
 
 
-tsimg = filter_bgr_similarity(cimg, (95, 0, 27))
-cv.imshow("bgr_sim_threshold", tsimg)
-cv.waitKey(0)
+#tsimg = filter_bgr_similarity(cimg, (95, 0, 27))
+#cv.imshow("bgr_sim_threshold", tsimg)
+#cv.waitKey(0)
 
 simg = hsv_color_similarity(cimg, mode_hue)
 cv.imshow("hsv_sim", simg)
@@ -134,7 +146,43 @@ tsimg = filter_hsv_similarity(cimg, mode_hue)
 cv.imshow("hsv_sim_threshold", tsimg)
 cv.waitKey(0)
 
-print(img.shape)
+kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
+certain_bg = cv.dilate(tsimg, kernel, iterations=3)
+cv.imshow("certain_bg", certain_bg)
+cv.waitKey(0)
+
+dist = cv.distanceTransform(tsimg, cv.DIST_L2, 0)
+print(dist)
+dist = np.uint8(dist / dist.max() * 255)
+#cv.normalize(dist, dist, 0, 1.0, cv.NORM_MINMAX)
+cv.imshow("dist", dist)
+cv.waitKey(0)
+
+_, certain_fg = cv.threshold(dist, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+certain_fg = np.uint8(certain_fg)
+cv.imshow("certain_fg", certain_fg)
+cv.waitKey(0)
+
+unknown = cv.subtract(certain_bg, certain_fg)
+cv.imshow("unknown", unknown)
+cv.waitKey(0)
+
+# label the pixels (baackground will be labeled as 0)
+_, markers = cv.connectedComponents(certain_fg)
+
+# ensure that background is labeled 1
+markers = markers + 1
+
+# mark unknown regions as 0
+markers[unknown > 0] = 0
+cv.imshow("markers", cv.applyColorMap(np.uint8(markers), cv.COLORMAP_JET))
+cv.waitKey(0)
+
+# mark boundary regions with -1
+markers = cv.watershed(cimg, markers)
+simg[markers == -1] = 0
+cv.imshow("watershed", simg)
+cv.waitKey(0)
 
 # Sort wells by x and y coordinates, allowing for imprecision in coordinates
 # @param wells  list of list [x0, y0, r]
