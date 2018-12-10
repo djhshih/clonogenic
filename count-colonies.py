@@ -524,3 +524,5 @@ print("number of colonies:", sum(idx))
 
 cv.destroyAllWindows()
 
+# TODO add circles found by hough transform into the certain_fg set for
+# watershed 
