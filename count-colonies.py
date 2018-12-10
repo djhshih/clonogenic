@@ -326,12 +326,12 @@ def process_well_hough(img, cimg, well):
         #cv.waitKey(0)
     return circles
 
-def apply_well_mask(wimg, r, shrink=5):
+def apply_circular_mask(wimg, r, shrink=0):
     mask = np.zeros(wimg.shape, np.uint8)
     cv.circle(mask, (r, r), r-shrink, 255, -1)
     return cv.bitwise_and(wimg, wimg, mask=mask)
 
-def apply_wells_mask(img, wells, shrink=5):
+def apply_wells_mask(img, wells, shrink=0):
     mask = np.zeros(img.shape[0:2], np.uint8)
     for w in wells:
         x0, y0, r = w
@@ -351,8 +351,6 @@ img = cv.medianBlur(img, 5)
 cv.imshow("gray", img)
 cv.waitKey(0)
 
-mode_hue = find_mode_hue(cimg)
-
 wells = find_wells(img, (2,3))
 print(wells)
 
@@ -361,6 +359,7 @@ cimg = apply_wells_mask(cimg, wells, 8)
 cv.imshow("bg_masked", img)
 cv.waitKey(0)
 
+mode_hue = find_mode_hue(cimg)
 
 #tsimg = filter_bgr_similarity(cimg, (95, 0, 27))
 #cv.imshow("bgr_sim_threshold", tsimg)
@@ -377,11 +376,9 @@ cv.imshow("watershed", marked)
 cv.waitKey(0)
 
 
-
-well = wells[0]
+well = wells[2]
 
 process_well_hough(img, cimg, well)
-
 
 
 wimg = select_well(img, well)
@@ -394,19 +391,18 @@ cv.waitKey(0)
 #wimg = apply_circular_mask(wimg)
 
 bimg = cv.GaussianBlur(wimg, (7, 7), 0)
-cv.imshow("blur", bimg)
-cv.waitKey(0)
+#cv.imshow("blur", bimg)
+#cv.waitKey(0)
 
 gimg = gaussian_bandpass_filter(wimg)
 cv.imshow("gaussian_bandpass_filter", gimg)
 cv.waitKey(0)
 
-
-ledge = laplacian_edge(wimg)
+ledge = laplacian_edge(gimg)
 cv.imshow("laplacian_edge", ledge)
 cv.waitKey(0)
 
-kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
 ledge = cv.morphologyEx(ledge, cv.MORPH_CLOSE, kernel)
 cv.imshow("laplacian_edge", ledge)
 cv.waitKey(0)
@@ -445,26 +441,62 @@ vis = cv.drawContours(np.zeros(wimg.shape, np.uint8), contours, -1, 255, thickne
 cv.imshow("canny_filled_contours", vis)
 cv.waitKey(0)
 
+
 timg = cv.adaptiveThreshold(wimg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, -2)
 cv.imshow("athreshold", timg)
 cv.waitKey(0)
 
 #timg = cv.medianBlur(timg, 5)
 #timg = cv.morphologyEx(timg, cv.MORPH_ERODE, kernel)
+timg = apply_circular_mask(timg, well[2], shrink=10)
 kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
 timg = cv.morphologyEx(timg, cv.MORPH_OPEN, kernel)
 cv.imshow("athreshold", timg)
 cv.waitKey(0)
 
-cc = cv.connectedComponentsWithStats(timg, 8, cv.CV_32S)
+
+# find local maxima
+def find_local_maxima(wimg):
+    # using blurred image worsen results here
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
+    peak = cv.dilate(wimg, kernel, iterations=2)
+    peak = cv.subtract(peak, wimg)
+    _, peak = cv.threshold(peak, 5, 255, cv.THRESH_BINARY)
+    cv.imshow("peak", peak)
+    cv.waitKey(0)
+
+    flat = cv.erode(wimg, kernel, iterations=2)
+    flat = cv.subtract(wimg, flat)
+    _, flat = cv.threshold(flat, 5, 255, cv.THRESH_BINARY)
+    flat = cv.bitwise_not(flat)
+    cv.imshow("flat", flat)
+    cv.waitKey(0)
+
+    peak[flat > 0] = 255
+    local = cv.bitwise_not(peak)
+    local = apply_circular_mask(local, well[2], shrink=18)
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+    local = cv.morphologyEx(local, cv.MORPH_CLOSE, kernel)
+    return local
+
+local = find_local_maxima(wimg)
+cv.imshow("local", local)
+cv.waitKey(0)
+
+# TODO watershed
+
+#cc = cv.connectedComponentsWithStats(timg, 8, cv.CV_32S)
+cc = cv.connectedComponentsWithStats(local, 8, cv.CV_32S)
 
 centroids = cc[3]
 
-for c in centroids:
-    x0, y0 = np.uint16(np.around(c))
-    cv.circle(wcimg, (x0, y0), 2, (0, 0, 255), 2)
+# centroids[0] is the background
 
-cv.imshow("athreshold", wcimg)
+for c in centroids[1:]:
+    x0, y0 = np.uint16(np.around(c))
+    cv.circle(wcimg, (x0, y0), 2, (0, 255, 255), 2)
+
+cv.imshow("final", wcimg)
 cv.waitKey(0)
 
 cv.destroyAllWindows()
