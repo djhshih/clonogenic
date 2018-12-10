@@ -14,8 +14,8 @@ def find_mode_hue(cimg):
     hsv = cv.cvtColor(cimg, cv.COLOR_BGR2HSV)
     # filter for pixels with > 50% saturation
     idx = hsv[:,:,1] > 255/2
-    #cv.imshow("saturated", cv.bitwise_and(cimg, cimg, mask=np.uint8(idx)))
-    #cv.waitKey(0)
+    cv.imshow("saturated", cv.bitwise_and(cimg, cimg, mask=np.uint8(idx)))
+    cv.waitKey(0)
     hsv_hist = np.histogram(hsv[:,:,0][idx], bins=np.arange(180+1))
     return hsv_hist[1][np.argmax(hsv_hist[0])]
 
@@ -168,9 +168,12 @@ def mark_boundaries(timg, cimg):
     markers = cv.watershed(cimg, markers)
     return markers
 
+# TODO Fix result for non-square image!
+#      resulting appears to have a rotated image superimposed
 def gaussian_bandpass_filter(img, hp_sigma=3, lp_sigma=60):
     fimg = np.fft.fftshift(cv.dft(np.float32(img), flags = cv.DFT_COMPLEX_OUTPUT))
-    lmag = np.log(1 + cv.magnitude(fimg[:,:,0], fimg[:,:, 1]))
+    print(fimg.shape)
+    #lmag = np.log(1 + cv.magnitude(fimg[:,:,0], fimg[:,:, 1]))
     #from matplotlib import pyplot as plt
     #plt.imshow(lmag, cmap="gray")
     #plt.show()
@@ -190,6 +193,8 @@ def gaussian_bandpass_filter(img, hp_sigma=3, lp_sigma=60):
     #cv.waitKey(0)
 
     gpf = np.multiply(lpf, hpf)
+    # NB funny things happen when img is *not* square!
+    gpf = cv.resize(gpf, (img.shape[1], img.shape[0]))
     #print("min: {}, max: {}".format(gpf.min(), gpf.max()))
     #cv.imshow("filter", gpf / gpf.max())
     #cv.waitKey(0)
@@ -298,6 +303,10 @@ def show_wells(cimg, wells):
     cv.imshow("Detected wells", cimg)
     cv.waitKey(0)
 
+def select_well(img, well):
+    x0, y0, r = well
+    return img[(y0-r):(y0+r), (x0-r):(x0+r)]
+
 def process_well_hough(img, cimg, well):
     x0, y0, r = well
     wimg = img[(y0-r):(y0+r), (x0-r):(x0+r)]
@@ -317,6 +326,18 @@ def process_well_hough(img, cimg, well):
         #cv.waitKey(0)
     return circles
 
+def apply_well_mask(wimg, r, shrink=5):
+    mask = np.zeros(wimg.shape, np.uint8)
+    cv.circle(mask, (r, r), r-shrink, 255, -1)
+    return cv.bitwise_and(wimg, wimg, mask=mask)
+
+def apply_wells_mask(img, wells, shrink=5):
+    mask = np.zeros(img.shape[0:2], np.uint8)
+    for w in wells:
+        x0, y0, r = w
+        cv.circle(mask, (x0, y0), r-shrink, 255, -1)
+    return cv.bitwise_and(img, img, mask=mask)
+
 
 cimg = cv.imread("EPSON005.TIF")
 cv.imshow("original", cimg)
@@ -332,6 +353,15 @@ cv.waitKey(0)
 
 mode_hue = find_mode_hue(cimg)
 
+wells = find_wells(img, (2,3))
+print(wells)
+
+img = apply_wells_mask(img, wells, 8)
+cimg = apply_wells_mask(cimg, wells, 8)
+cv.imshow("bg_masked", img)
+cv.waitKey(0)
+
+
 #tsimg = filter_bgr_similarity(cimg, (95, 0, 27))
 #cv.imshow("bgr_sim_threshold", tsimg)
 #cv.waitKey(0)
@@ -346,23 +376,17 @@ marked[markers == -1] = (0, 0, 255)
 cv.imshow("watershed", marked)
 cv.waitKey(0)
 
-wells = find_wells(img, (2,3))
-print(wells)
 
 
 well = wells[0]
-x0, y0, r = well
 
 process_well_hough(img, cimg, well)
 
-wimg = img[(y0-r):(y0+r), (x0-r):(x0+r)]
 
-wcimg = cimg[(y0-r):(y0+r), (x0-r):(x0+r)]
 
-def apply_circular_mask(wimg, border=10):
-    mask = np.zeros(wimg.shape, np.uint8)
-    cv.circle(mask, (r, r), r-border, 255, -1)
-    return cv.bitwise_and(wimg, mask)
+wimg = select_well(img, well)
+wcimg = select_well(cimg, well)
+
 
 cv.imshow("well", wimg)
 cv.waitKey(0)
@@ -372,7 +396,6 @@ cv.waitKey(0)
 bimg = cv.GaussianBlur(wimg, (7, 7), 0)
 cv.imshow("blur", bimg)
 cv.waitKey(0)
-
 
 gimg = gaussian_bandpass_filter(wimg)
 cv.imshow("gaussian_bandpass_filter", gimg)
