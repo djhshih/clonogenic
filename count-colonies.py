@@ -2,23 +2,12 @@ from matplotlib import pyplot as plt
 import numpy as np
 import cv2 as cv
 
-cimg = cv.imread("EPSON005.TIF")
 
 # Show each color channel
 def show_color_channels(cimg):
     cv.imshow("blue", cimg[:,:,0])
     cv.imshow("green", cimg[:,:,1])
     cv.imshow("red", cimg[:,:,2])
-
-cv.imshow("image", cimg)
-
-# convert to grayscale
-img = cv.cvtColor(cimg, cv.COLOR_BGR2GRAY)
-
-print(img.shape)
-
-# median blur
-img = cv.medianBlur(img, 5)
 
 # identify most common hue from among saturated pixels
 def find_mode_hue(cimg):
@@ -53,18 +42,6 @@ def filter_hsv_range(cimg, hue=None, lower=None, upper=None, tol=0.1):
     mask_color = cv.morphologyEx(mask_color, cv.MORPH_OPEN, kernel)
     vimg = cv.bitwise_not(img)
     return cv.bitwise_and(vimg, vimg, mask=mask_color)
-
-mode_hue = find_mode_hue(cimg)
-
-# filter for violet color
-simg = filter_hsv_range(cimg, mode_hue)
-cv.imshow("colour_filtered", simg)
-cv.waitKey(0)
-
-kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
-seimg = cv.morphologyEx(simg, cv.MORPH_ERODE, kernel)
-#cv.imshow("bona_fide", seimg)
-#cv.waitKey(0)
 
 def bgr_color_euclidean_similarity(cimg, ref_color):
     cimgf = cimg.astype(np.float)
@@ -106,14 +83,8 @@ def filter_bgr_similarity(cimg, ref_color):
     tsimg = cv.morphologyEx(tsimg, cv.MORPH_CLOSE, kernel)
     return tsimg
 
-def filter_hsv_similarity(cimg, ref_hue):
-    s = hsv_color_similarity(cimg, ref_hue)
-    simg = np.uint8(s * 255)
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
-    simg = cv.morphologyEx(simg, cv.MORPH_OPEN, kernel)
-    #cv.imshow("hsv_sim", simg)
-    #cv.waitKey(0)
-#    bsimg = cv.blur(simg, (9, 9), 0)
+def subtract_edges(img):
+#    bsimg = cv.blur(img, (9, 9), 0)
 #    cv.imshow("bsimg", bsimg)
 #    cv.waitKey(0)
 #    dimg = cv.subtract(bsimg, simg)
@@ -123,73 +94,156 @@ def filter_hsv_similarity(cimg, ref_hue):
 #    _, tdimg = cv.threshold(dimg, 20, 255, cv.THRESH_BINARY_INV);
 #    cv.imshow("tdimg", tdimg)
 #    cv.waitKey(0)
-    tsimg = cv.adaptiveThreshold(simg, 255, cv.ADAPTIVE_THRESH_MEAN_C, 
+    timg = cv.adaptiveThreshold(img, 255, cv.ADAPTIVE_THRESH_MEAN_C, 
         cv.THRESH_BINARY_INV, 11, 2)
-    dimg = cv.subtract(simg, tsimg)
-    #cv.imshow("dimg", dimg)
-    #cv.waitKey(0)
+    timg = cv.dilate(timg, cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5)))
+    return cv.subtract(img, timg)
+
+def filter_hsv_similarity(cimg, ref_hue):
+    s = hsv_color_similarity(cimg, ref_hue)
+    simg = np.uint8(s * 255)
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+    simg = cv.morphologyEx(simg, cv.MORPH_OPEN, kernel)
+    cv.imshow("hsv_sim", simg)
+    cv.waitKey(0)
+    # subtract edges
+    dimg = subtract_edges(simg)
+    cv.imshow("dimg", dimg)
+    cv.waitKey(0)
+    # threshold
     _, tsimg = cv.threshold(dimg, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
-    kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
     tsimg = cv.morphologyEx(tsimg, cv.MORPH_OPEN, kernel)
     return tsimg
 
+# Keep high-confidence hue foreground
+def keep_hue_foreground(cimg, ref_hue):
+    # filter for target hue
+    simg = filter_hsv_range(cimg, ref_hue)
+    cv.imshow("hue_filtered", simg)
+    cv.waitKey(0)
 
-#tsimg = filter_bgr_similarity(cimg, (95, 0, 27))
-#cv.imshow("bgr_sim_threshold", tsimg)
-#cv.waitKey(0)
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
+    seimg = cv.morphologyEx(simg, cv.MORPH_ERODE, kernel)
+    return seimg
 
-simg = hsv_color_similarity(cimg, mode_hue)
-cv.imshow("hsv_sim", simg)
-cv.waitKey(0)
+# Split colonies
+# @param timg  thresholded image
+# @param cimg  original color image
+# @return  markers matrix where boundary regions are marked as -1
+def mark_boundaries(timg, cimg):
+    # get bona fide background
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
+    certain_bg = cv.dilate(timg, kernel, iterations=3)
+    cv.imshow("certain_bg", certain_bg)
+    cv.waitKey(0)
 
-tsimg = filter_hsv_similarity(cimg, mode_hue)
-cv.imshow("hsv_sim_threshold", tsimg)
-cv.waitKey(0)
+    # get bona fide foreground based on distance transform
+    dist = cv.distanceTransform(timg, cv.DIST_L2, 0)
+    dist = np.uint8(dist / dist.max() * 255)
+    cv.imshow("dist", dist)
+    cv.waitKey(0)
+    _, certain_fg = cv.threshold(dist, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+    certain_fg = np.uint8(certain_fg)
+    cv.imshow("certain_fg", certain_fg)
+    cv.waitKey(0)
 
-kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
-certain_bg = cv.dilate(tsimg, kernel, iterations=3)
-cv.imshow("certain_bg", certain_bg)
-cv.waitKey(0)
+    # get unknown, border regions
+    unknown = cv.subtract(certain_bg, certain_fg)
+    cv.imshow("unknown", unknown)
+    cv.waitKey(0)
 
-dist = cv.distanceTransform(tsimg, cv.DIST_L2, 0)
-print(dist)
-dist = np.uint8(dist / dist.max() * 255)
-#cv.normalize(dist, dist, 0, 1.0, cv.NORM_MINMAX)
-cv.imshow("dist", dist)
-cv.waitKey(0)
+    # label the pixels (baackground will be labeled as 0)
+    _, markers = cv.connectedComponents(certain_fg)
 
-_, certain_fg = cv.threshold(dist, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
-certain_fg = np.uint8(certain_fg)
-cv.imshow("certain_fg", certain_fg)
-cv.waitKey(0)
+    # ensure that background is labeled 1
+    markers = markers + 1
 
-unknown = cv.subtract(certain_bg, certain_fg)
-cv.imshow("unknown", unknown)
-cv.waitKey(0)
+    # mark unknown regions as 0
+    markers[unknown > 0] = 0
+    cv.imshow("markers", cv.applyColorMap(np.uint8(markers), cv.COLORMAP_JET))
+    cv.waitKey(0)
 
-# label the pixels (baackground will be labeled as 0)
-_, markers = cv.connectedComponents(certain_fg)
+    # mark boundary regions with -1
+    markers = cv.watershed(cimg, markers)
+    return markers
 
-# ensure that background is labeled 1
-markers = markers + 1
+def gaussian_bandpass_filter(img, hp_sigma=3, lp_sigma=60):
+    fimg = np.fft.fftshift(cv.dft(np.float32(img), flags = cv.DFT_COMPLEX_OUTPUT))
+    lmag = np.log(1 + cv.magnitude(fimg[:,:,0], fimg[:,:, 1]))
+    #from matplotlib import pyplot as plt
+    #plt.imshow(lmag, cmap="gray")
+    #plt.show()
+    #cv.waitKey(0)
 
-# mark unknown regions as 0
-markers[unknown > 0] = 0
-cv.imshow("markers", cv.applyColorMap(np.uint8(markers), cv.COLORMAP_JET))
-cv.waitKey(0)
+    ksize = min(img.shape[0], img.shape[1]) 
+    hpf = cv.getGaussianKernel(ksize, hp_sigma)
+    hpf = hpf / hpf.max()
+    hpf = 1 - (hpf * hpf.T)
+    #cv.imshow("highpass_filter", hpf)
+    #cv.waitKey(0)
 
-# mark boundary regions with -1
-markers = cv.watershed(cimg, markers)
-simg[markers == -1] = 0
-cv.imshow("watershed", simg)
-cv.waitKey(0)
+    lpf = cv.getGaussianKernel(ksize, lp_sigma)
+    lpf = lpf * lpf.T
+    lpf = lpf / lpf.max()
+    #cv.imshow("lowpass_filter", lpf)
+    #cv.waitKey(0)
 
-# Sort wells by x and y coordinates, allowing for imprecision in coordinates
+    gpf = np.multiply(lpf, hpf)
+    #print("min: {}, max: {}".format(gpf.min(), gpf.max()))
+    #cv.imshow("filter", gpf / gpf.max())
+    #cv.waitKey(0)
+
+    # apply bandpass filter to the real component,
+    # leaving the imaginary component alone
+    fimgf = np.dstack((np.multiply(fimg[:,:,0], gpf), fimg[:,:,1]))
+
+    # apply inverse Fourier transform to recover the filtered image
+    gimg = cv.idft(np.fft.ifftshift(fimgf))
+    gimg = cv.magnitude(gimg[:,:,0], gimg[:,:,1])
+    gimg = np.uint8((gimg / gimg.max()) * 255)
+    return gimg
+
+def local_sd(img, ksize=(3,3)):
+    fimg = img.astype(np.float)
+    # mean
+    m = cv.blur(fimg, ksize)
+    # mean squared
+    m2 = cv.blur(np.multiply(fimg, fimg), ksize)
+    # NB numerically instable
+    sd = cv.sqrt(m2 - m*m)
+    return sd
+
+def laplacian_edge(img, zcross_threshold=3, sd_ksize=(3,3), sd_threshold=2):
+    # find zero crossings after Laplacian transform
+    lg = cv.Laplacian(gimg, cv.CV_16S, 11)
+    #kernel = np.ones((3,3))
+    kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+    # use erode to find min of neighbourhood
+    minlg = cv.morphologyEx(lg, cv.MORPH_ERODE, kernel)
+    # use dilate to find max of neighbourhood
+    maxlg = cv.morphologyEx(lg, cv.MORPH_DILATE, kernel)
+    # zero crossing occurs at a positive pixel with an adjacent negative pixel or
+    # a negative pixel with an adjacent positive pixel 
+    zcross = np.logical_or(
+        np.logical_and(minlg < zcross_threshold, lg > zcross_threshold),
+        np.logical_and(maxlg > zcross_threshold, lg < zcross_threshold))
+    #cv.imshow("zero_crossing", zcross.astype(np.uint8)*255)
+    #cv.waitKey(0)
+
+    sd = local_sd(img, sd_ksize)
+    #cv.imshow("sd", sd)
+    #cv.waitKey(0)
+
+    # edge occurs at Laplacian zero-crossings in regions of high local variance
+    ledge = np.logical_and(sd > sd_threshold, zcross).astype(np.uint8)*255
+    return ledge
+
+# Sort wells by y and x coordinates, allowing for imprecision in coordinates
 # @param wells  list of list [x0, y0, r]
 def sort_wells(wells):
     xs = np.sort([w[0] for w in wells])
     ys = np.sort([w[1] for w in wells])
-    print(xs)
 
     # find mean radius
     r = np.mean([w[2] for w in wells])
@@ -219,8 +273,7 @@ def sort_wells(wells):
 
     # sort wells by the snapped coordinates 
     return sorted( wells, key = lambda well:
-        (snap(well[0], coords_x), snap(well[1], coords_y)) )
-
+        (snap(well[1], coords_y), snap(well[0], coords_x)) )
 
 # @return list of wells;
 #         each well is of the form (x0, y0, r),
@@ -237,23 +290,18 @@ def find_wells(img, plate_shape):
     wells = np.uint16(np.around(wells))
     return sort_wells(wells)
 
-wells = find_wells(img, (2,3))
-print(wells)
+def show_wells(cimg, wells):
+    for w in wells:
+        x0, y0, r = w
+        # draw the perimeter
+        cv.circle(cimg, (x0, y0), r, (0, 255, 0), 2)
+    cv.imshow("Detected wells", cimg)
+    cv.waitKey(0)
 
-
-for w in wells:
-    x0, y0, r = w
-    # draw the perimeter
-    cv.circle(cimg, (x0, y0), r, (0, 255, 0), 2)
-
-cv.imshow("Detected wells", cimg)
-cv.waitKey(0)
-
-
-def process_well_hough(img, well):
+def process_well_hough(img, cimg, well):
     x0, y0, r = well
     wimg = img[(y0-r):(y0+r), (x0-r):(x0+r)]
-    #wcimg = cimg[(y0-r):(y0+r), (x0-r):(x0+r)]
+    wcimg = cimg[(y0-r):(y0+r), (x0-r):(x0+r)]
 
     circles = cv.HoughCircles(wimg, cv.HOUGH_GRADIENT, 1, 3,
         param1 = 30, param2 = 20,
@@ -261,18 +309,53 @@ def process_well_hough(img, well):
     if circles is not None:
         circles = circles[0]
         circles = np.uint16(np.around(circles))
+        # draw circles
+        for c in circles:
+            x0, y0, r = c
+            cv.circle(wcimg, (x0, y0), r, (0, 255, 0), 2)
+        #cv.imshow("well", wcimg)
+        #cv.waitKey(0)
+    return circles
 
-    #cv.imshow("well", wcimg)
-    #cv.waitKey(0)
 
-#process_well_hough(wells[0])
+cimg = cv.imread("EPSON005.TIF")
+cv.imshow("original", cimg)
+
+print(cimg.shape)
+
+# convert to grayscale, invert, and denoise
+img = cv.cvtColor(cimg, cv.COLOR_BGR2GRAY)
+img = cv.bitwise_not(img)
+img = cv.medianBlur(img, 5)
+cv.imshow("gray", img)
+cv.waitKey(0)
+
+mode_hue = find_mode_hue(cimg)
+
+#tsimg = filter_bgr_similarity(cimg, (95, 0, 27))
+#cv.imshow("bgr_sim_threshold", tsimg)
+#cv.waitKey(0)
+
+tsimg = filter_hsv_similarity(cimg, mode_hue)
+cv.imshow("hsv_sim_threshold", tsimg)
+cv.waitKey(0)
+
+marked = cimg.copy()
+markers = mark_boundaries(tsimg, marked)
+marked[markers == -1] = (0, 0, 255)
+cv.imshow("watershed", marked)
+cv.waitKey(0)
+
+wells = find_wells(img, (2,3))
+print(wells)
 
 
 well = wells[0]
 x0, y0, r = well
 
+process_well_hough(img, cimg, well)
+
 wimg = img[(y0-r):(y0+r), (x0-r):(x0+r)]
-wimg = cv.bitwise_not(wimg)
 
 wcimg = cimg[(y0-r):(y0+r), (x0-r):(x0+r)]
 
@@ -290,105 +373,32 @@ bimg = cv.GaussianBlur(wimg, (7, 7), 0)
 cv.imshow("blur", bimg)
 cv.waitKey(0)
 
-fimg = np.fft.fftshift(cv.dft(np.float32(wimg), flags = cv.DFT_COMPLEX_OUTPUT))
-lmag = np.log(1 + cv.magnitude(fimg[:,:,0], fimg[:,:, 1]))
-#from matplotlib import pyplot as plt
-#plt.imshow(lmag, cmap="gray")
-#plt.show()
-#cv.waitKey(0)
 
-hp_sigma = 3
-lp_sigma = 60
-
-wheight = wimg.shape[0]
-wwidth = wimg.shape[1]
-ksize = min(wheight, wwidth)
-hpf = cv.getGaussianKernel(ksize, hp_sigma)
-hpf = hpf / hpf.max()
-hpf = 1 - (hpf * hpf.T)
-print("hpf: ", hpf)
-cv.imshow("highpass_filter", hpf)
-cv.waitKey(0)
-
-lpf = cv.getGaussianKernel(ksize, lp_sigma)
-lpf = lpf * lpf.T
-lpf = lpf / lpf.max()
-cv.imshow("lowpass_filter", lpf)
-cv.waitKey(0)
-
-gpf = np.multiply(lpf, hpf)
-print("min: {}, max: {}".format(gpf.min(), gpf.max()))
-cv.imshow("filter", gpf / gpf.max())
-cv.waitKey(0)
-
-fimgf = np.dstack((np.multiply(fimg[:,:,0], gpf), fimg[:,:,1]))
-
-gimg = cv.idft(np.fft.ifftshift(fimgf))
-#gimg = cv.idft(np.fft.ifftshift(fimg))
-print(gimg.dtype)
-print(gimg.shape)
-gimg = cv.magnitude(gimg[:,:,0], gimg[:,:,1])
-gimg = np.uint8((gimg / gimg.max()) * 255)
-print(gimg.max())
+gimg = gaussian_bandpass_filter(wimg)
 cv.imshow("gaussian_bandpass_filter", gimg)
 cv.waitKey(0)
 
 
-
-
-lg = cv.Laplacian(gimg, cv.CV_16S, 11)
-#kernel = np.ones((3,3))
-kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
-# use erode to find min of neighbourhood
-minlg = cv.morphologyEx(lg, cv.MORPH_ERODE, kernel)
-# use dilate to find max of neighbourhood
-maxlg = cv.morphologyEx(lg, cv.MORPH_DILATE, kernel)
-# zero crossing occurs at a positive pixel with an adjacent negative pixel or
-# a negative pixel with an adjacent positive pixel 
-print(np.histogram(lg))
-threshold = 3
-zcross = np.logical_or(
-    np.logical_and(minlg < threshold, lg > threshold),
-    np.logical_and(maxlg > threshold, lg < threshold))
-
-cv.imshow("zero_crossing", zcross.astype(np.uint8)*255)
-cv.waitKey(0)
-
-fimg = wimg.astype(np.float)
-
-m = cv.blur(fimg, (3, 3))
-m2 = cv.blur(np.multiply(fimg, fimg), (3, 3))
-sd = cv.sqrt(m2 - m*m)
-
-cv.imshow("sd", sd)
-cv.waitKey(0)
-
-# edge occurs at Laplacian zero-crossings in regions of high local variance
-ledge = np.logical_and(sd > 2, zcross).astype(np.uint8)*255
+ledge = laplacian_edge(wimg)
 cv.imshow("laplacian_edge", ledge)
 cv.waitKey(0)
 
-
-#kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
 kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
 ledge = cv.morphologyEx(ledge, cv.MORPH_CLOSE, kernel)
-#ledge = cv.medianBlur(ledge, 5)
 cv.imshow("laplacian_edge", ledge)
 cv.waitKey(0)
 
 
-ledge2, contours0, hierarchy = cv.findContours(ledge, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-print(hierarchy)
+ledge2, contours0, hierarchy = cv.findContours(ledge, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
+#print(hierarchy)
 
 cv.imshow("contours", ledge2)
 cv.waitKey(0)
 
 contours = [cv.approxPolyDP(c, 3, True) for c in contours0]
-print(contours)
-vis = cv.drawContours(np.zeros((wheight, wwidth), np.uint8), contours, -1, 255, thickness=-1)
+vis = cv.drawContours(np.zeros(wimg.shape, np.uint8), contours, -1, 255, thickness=-1)
 cv.imshow("filled_contours", vis)
 cv.waitKey(0)
-
 
 
 cedge = cv.Canny(bimg, 30, 15, 3)
@@ -407,37 +417,19 @@ cv.imshow("contours", cedge2)
 cv.waitKey(0)
 
 contours = [cv.approxPolyDP(c, 1, True) for c in contours0]
-print("hierarchy", hierarchy)
-vis = cv.drawContours(np.zeros((wheight, wwidth), np.uint8), contours, -1, 255, thickness=-1)
+#print("hierarchy", hierarchy)
+vis = cv.drawContours(np.zeros(wimg.shape, np.uint8), contours, -1, 255, thickness=-1)
 cv.imshow("canny_filled_contours", vis)
 cv.waitKey(0)
-
-
-
-#lg_abs = cv.convertScaleAbs(lg, alpha = 255/(2*np.max(lg)))
-#lg_abs = apply_circular_mask(lg_abs)
-#lg = cv.threshold(lg_abs, 10, 255, cv.THRESH_BINARY)[1]
-
-#print(np.mean(lg_abs))
-print(zcross)
-
-#cv.imshow("lglacian", lg == 0)
-#cv.imshow("lglacian", lg_abs)
-
-#dimg = wimg - bimg
-#cv.imshow("diff1", dimg)
-#cv.waitKey(0)
-
-#dimg = bimg - wimg
-#cv.imshow("diff", dimg)
-#cv.waitKey(0)
 
 timg = cv.adaptiveThreshold(wimg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, -2)
 cv.imshow("athreshold", timg)
 cv.waitKey(0)
 
-timg = cv.medianBlur(timg, 5)
-#timg = cv.morphologyEx(timg, cv.MORPH_OPEN, np.ones((3,3)))
+#timg = cv.medianBlur(timg, 5)
+#timg = cv.morphologyEx(timg, cv.MORPH_ERODE, kernel)
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+timg = cv.morphologyEx(timg, cv.MORPH_OPEN, kernel)
 cv.imshow("athreshold", timg)
 cv.waitKey(0)
 
@@ -452,5 +444,5 @@ for c in centroids:
 cv.imshow("athreshold", wcimg)
 cv.waitKey(0)
 
-
 cv.destroyAllWindows()
+
