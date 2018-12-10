@@ -483,21 +483,44 @@ local = find_local_maxima(wimg)
 cv.imshow("local", local)
 cv.waitKey(0)
 
-# TODO watershed
+markers = mark_boundaries(local, wcimg)
+wcimg[markers == -1] = (255, 255, 0)
+cv.imshow("watershed2", wcimg)
+cv.waitKey(0)
+
+print(np.histogram(markers))
 
 #cc = cv.connectedComponentsWithStats(timg, 8, cv.CV_32S)
-cc = cv.connectedComponentsWithStats(local, 8, cv.CV_32S)
+#cc = cv.connectedComponentsWithStats(local, 8, cv.CV_32S)
 
-centroids = cc[3]
+tmarkers = np.uint8(markers > 0) * 255
+tmarkers = cv.bitwise_not(tmarkers)
+# fill in the contours
+_, contours, hierarchy = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+print(contours)
+tmarkers = cv.drawContours(tmarkers, contours, -1, 255, thickness=-1)
+cv.imshow("tmarkers", tmarkers)
+cv.waitKey(0)
+
+cc = cv.connectedComponentsWithStats(tmarkers, 8, cv.CV_32S)
+
+min_size = 10
 
 # centroids[0] is the background
+stats = cc[2][1:]
+centroids = cc[3][1:]
 
-for c in centroids[1:]:
+idx = stats[:, cv.CC_STAT_AREA] > min_size
+print(stats[:, cv.CC_STAT_AREA])
+
+for c in centroids[idx]:
     x0, y0 = np.uint16(np.around(c))
     cv.circle(wcimg, (x0, y0), 2, (0, 255, 255), 2)
 
 cv.imshow("final", wcimg)
 cv.waitKey(0)
+
+print("number of colonies:", sum(idx))
 
 cv.destroyAllWindows()
 
