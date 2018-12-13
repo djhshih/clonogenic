@@ -338,6 +338,30 @@ def apply_wells_mask(img, wells, shrink=0):
         cv.circle(mask, (x0, y0), r-shrink, 255, -1)
     return cv.bitwise_and(img, img, mask=mask)
 
+# find local maxima
+def find_local_maxima(wimg):
+    # using blurred image worsen results here
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
+    peak = cv.dilate(wimg, kernel, iterations=2)
+    peak = cv.subtract(peak, wimg)
+    _, peak = cv.threshold(peak, 5, 255, cv.THRESH_BINARY)
+    cv.imshow("peak", peak)
+    cv.waitKey(0)
+
+    flat = cv.erode(wimg, kernel, iterations=2)
+    flat = cv.subtract(wimg, flat)
+    _, flat = cv.threshold(flat, 5, 255, cv.THRESH_BINARY)
+    flat = cv.bitwise_not(flat)
+    cv.imshow("flat", flat)
+    cv.waitKey(0)
+
+    peak[flat > 0] = 255
+    local = cv.bitwise_not(peak)
+    local = apply_circular_mask(local, well[2], shrink=18)
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+    local = cv.morphologyEx(local, cv.MORPH_CLOSE, kernel)
+    return local
+
 
 ##############################################################################
 
@@ -397,58 +421,6 @@ wcimg = select_well(cimg, well)
 cv.imshow("well", wimg)
 cv.waitKey(0)
 
-#wimg = apply_circular_mask(wimg)
-
-bimg = cv.GaussianBlur(wimg, (7, 7), 0)
-#cv.imshow("blur", bimg)
-#cv.waitKey(0)
-
-gimg = gaussian_bandpass_filter(wimg)
-cv.imshow("gaussian_bandpass_filter", gimg)
-cv.waitKey(0)
-
-ledge = laplacian_edge(gimg)
-cv.imshow("laplacian_edge", ledge)
-cv.waitKey(0)
-
-kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
-ledge = cv.morphologyEx(ledge, cv.MORPH_CLOSE, kernel)
-cv.imshow("laplacian_edge", ledge)
-cv.waitKey(0)
-
-
-ledge2, contours0, hierarchy = cv.findContours(ledge, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-#print(hierarchy)
-
-cv.imshow("contours", ledge2)
-cv.waitKey(0)
-
-contours = [cv.approxPolyDP(c, 3, True) for c in contours0]
-vis = cv.drawContours(np.zeros(wimg.shape, np.uint8), contours, -1, 255, thickness=-1)
-cv.imshow("filled_contours", vis)
-cv.waitKey(0)
-
-
-cedge = cv.Canny(bimg, 30, 15, 3)
-cv.imshow("canny_edge", cedge)
-cv.waitKey(0)
-
-kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
-cedge = cv.morphologyEx(cedge, cv.MORPH_CLOSE, kernel)
-cv.imshow("canny_edge", cedge)
-cv.waitKey(0)
-
-
-cedge2, contours0, hierarchy = cv.findContours(cedge, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-
-cv.imshow("contours", cedge2)
-cv.waitKey(0)
-
-contours = [cv.approxPolyDP(c, 1, True) for c in contours0]
-#print("hierarchy", hierarchy)
-vis = cv.drawContours(np.zeros(wimg.shape, np.uint8), contours, -1, 255, thickness=-1)
-cv.imshow("canny_filled_contours", vis)
-cv.waitKey(0)
 
 
 timg = cv.adaptiveThreshold(wimg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, -2)
@@ -464,29 +436,6 @@ cv.imshow("athreshold", timg)
 cv.waitKey(0)
 
 
-# find local maxima
-def find_local_maxima(wimg):
-    # using blurred image worsen results here
-    kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
-    peak = cv.dilate(wimg, kernel, iterations=2)
-    peak = cv.subtract(peak, wimg)
-    _, peak = cv.threshold(peak, 5, 255, cv.THRESH_BINARY)
-    cv.imshow("peak", peak)
-    cv.waitKey(0)
-
-    flat = cv.erode(wimg, kernel, iterations=2)
-    flat = cv.subtract(wimg, flat)
-    _, flat = cv.threshold(flat, 5, 255, cv.THRESH_BINARY)
-    flat = cv.bitwise_not(flat)
-    cv.imshow("flat", flat)
-    cv.waitKey(0)
-
-    peak[flat > 0] = 255
-    local = cv.bitwise_not(peak)
-    local = apply_circular_mask(local, well[2], shrink=18)
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
-    local = cv.morphologyEx(local, cv.MORPH_CLOSE, kernel)
-    return local
 
 local = find_local_maxima(wimg)
 cv.imshow("local", local)
