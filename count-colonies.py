@@ -339,7 +339,16 @@ def apply_wells_mask(img, wells, shrink=0):
     return cv.bitwise_and(img, img, mask=mask)
 
 
-cimg = cv.imread("EPSON005.TIF")
+##############################################################################
+
+import argparse
+
+pr = argparse.ArgumentParser("Count colonies for clonogenic assay")
+pr.add_argument("input", help="input image file")
+
+argv = pr.parse_args()
+
+cimg = cv.imread(argv.input)
 cv.imshow("original", cimg)
 
 print(cimg.shape)
