@@ -414,7 +414,7 @@ cv.imshow("hsv_sim_threshold", tsimg)
 cv.waitKey(0)
 
 radius = well[2]
-margin2 = 32
+margin2 = 24
 
 marked = wcimg.copy()
 
@@ -478,17 +478,26 @@ cv.imshow("tmarkers", tmarkers)
 cv.waitKey(0)
 
 def refine(tmarkers, border):
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+    border = cv.dilate(border, kernel, iterations=2)
 
-    kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
-    border = cv.dilate(border, kernel, iterations=3)
-    certain_fg = cv.subtract(tmarkers, border)
-    cv.imshow("certain_fg!", certain_fg)
+    timg = cv.subtract(tmarkers, border)
+    cv.imshow("timg!", timg)
     cv.waitKey(0)
 
     # get bona fide background
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
-    certain_bg = cv.dilate(certain_fg, kernel, iterations=3)
+    certain_bg = cv.dilate(timg, kernel, iterations=3)
     cv.imshow("certain_bg!", certain_bg)
+    cv.waitKey(0)
+
+    dist = cv.distanceTransform(timg, cv.DIST_L2, 0)
+    dist = np.uint8(dist / dist.max() * 255)
+    cv.imshow("dist!", dist)
+    cv.waitKey(0)
+    _, certain_fg = cv.threshold(dist, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+    certain_fg = np.uint8(certain_fg)
+    cv.imshow("certain_fg!", certain_fg)
     cv.waitKey(0)
 
     # get unknown, border regions
@@ -514,7 +523,7 @@ def refine(tmarkers, border):
     return tmarkers
 
 #border = np.uint8(markers1 == -1)
-# refine(tmarkers border)
+#tmarkers = refine(tmarkers, border)
 
 _, contours, _ = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
