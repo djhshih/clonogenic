@@ -384,8 +384,10 @@ cv.waitKey(0)
 wells = find_wells(img, (2,3))
 print(wells)
 
-img = apply_wells_mask(img, wells, 8)
-cimg = apply_wells_mask(cimg, wells, 8)
+margin = 8
+
+img = apply_wells_mask(img, wells, margin)
+cimg = apply_wells_mask(cimg, wells, margin)
 cv.imshow("bg_masked", img)
 cv.waitKey(0)
 
@@ -397,7 +399,7 @@ mode_hue = find_mode_hue(cimg)
 
 
 
-well = wells[2]
+well = wells[1]
 
 
 
@@ -411,6 +413,9 @@ tsimg = filter_hsv_similarity(wcimg, mode_hue)
 cv.imshow("hsv_sim_threshold", tsimg)
 cv.waitKey(0)
 
+radius = well[2]
+margin2 = 32
+
 marked = wcimg.copy()
 
 markers1 = mark_boundaries(tsimg, marked)
@@ -420,6 +425,7 @@ cv.waitKey(0)
 
 
 local = find_local_maxima(wimg)
+local = apply_circular_mask(local, radius, shrink=margin2)
 cv.imshow("local", local)
 cv.waitKey(0)
 
@@ -428,9 +434,10 @@ marked[markers2 == -1] = (255, 0, 255)
 cv.imshow("marked2", marked)
 cv.waitKey(0)
 
+margin3 = 12
 
 timg = cv.adaptiveThreshold(wimg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, -2)
-timg = apply_circular_mask(timg, well[2], shrink=10)
+timg = apply_circular_mask(timg, radius, shrink=margin2)
 kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
 timg = cv.morphologyEx(timg, cv.MORPH_OPEN, kernel)
 cv.imshow("athreshold", timg)
@@ -471,7 +478,7 @@ cv.imshow("tmarkers", tmarkers)
 cv.waitKey(0)
 
 _, contours, _ = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-print(contours)
+
 marked = wcimg.copy()
 marked = cv.drawContours(marked, contours, -1, (255, 255, 0), thickness=1)
 cv.imshow("marked", marked)
@@ -508,8 +515,7 @@ for i in range(len(centroids)):
             n = 1
         else:
             # truncate
-            n = np.uint8(area / area_mean)
-        print(n)
+            n = np.uint8(np.around(area / area_mean))
         ncolonies += n
         cv.circle(marked, (x0, y0), n, (0, 255, 255), -1)
      
@@ -517,6 +523,25 @@ cv.imshow("final", marked)
 cv.waitKey(0)
 
 print("number of colonies:", ncolonies)
+
+
+# subtract background
+mask = tmarkers
+bg = cv.bitwise_and(wimg, wimg, mask=cv.bitwise_not(tmarkers))
+bg_mean = np.mean(bg)
+fg = cv.subtract(cv.bitwise_and(wimg, wimg, mask=tmarkers), bg_mean)
+cv.imshow("fg", fg)
+cv.waitKey(0)
+
+# background has been subtracted from both background,
+# so it is sufficient to just sum the foreground
+# max value of each pixel is 255
+
+fg_max_area = np.sum(apply_circular_mask(np.ones(wimg.shape), radius, shrink=margin))
+intensity = np.float(np.sum(fg)) / 255 / fg_max_area
+
+print("Intensity: ", intensity)
+
 
 cv.destroyAllWindows()
 
