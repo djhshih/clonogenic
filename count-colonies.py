@@ -328,6 +328,13 @@ def apply_circular_mask(wimg, r, shrink=0):
     cv.circle(mask, (r, r), r-shrink, 255, -1)
     return cv.bitwise_and(wimg, wimg, mask=mask)
 
+def apply_wells_imask(img, wells, shrink=0):
+    mask = np.ones(img.shape[0:2], np.uint8)
+    for w in wells:
+        x0, y0, r = w
+        cv.circle(mask, (x0, y0), r-shrink, 0, -1)
+    return cv.bitwise_and(img, img, mask=mask)
+
 def apply_wells_mask(img, wells, shrink=0):
     mask = np.zeros(img.shape[0:2], np.uint8)
     for w in wells:
@@ -372,6 +379,8 @@ argv = pr.parse_args()
 cimg = cv.imread(argv.input)
 cv.imshow("original", cimg)
 
+cimg_raw = cimg.copy()
+
 print(cimg.shape)
 
 # convert to grayscale, invert, and denoise
@@ -399,7 +408,7 @@ mode_hue = find_mode_hue(cimg)
 
 
 
-well = wells[1]
+well = wells[0]
 
 
 
@@ -572,7 +581,6 @@ cv.waitKey(0)
 
 print("number of colonies:", ncolonies)
 
-
 # subtract background
 mask = tmarkers
 bg = cv.bitwise_and(wimg, wimg, mask=cv.bitwise_not(tmarkers))
@@ -581,14 +589,40 @@ fg = cv.subtract(cv.bitwise_and(wimg, wimg, mask=tmarkers), bg_mean)
 cv.imshow("fg", fg)
 cv.waitKey(0)
 
+
+fg_max_area = np.sum(apply_circular_mask(np.ones(wimg.shape), radius, shrink=margin))
+
+area = np.sum(fg > 0) / fg_max_area
+
+print("area: ", area)
+
+s = apply_circular_mask(hsv_color_similarity(wcimg, mode_hue), radius, shrink=margin)
+outside = apply_wells_imask(cimg_raw, wells, shrink=-margin)
+
+os = hsv_color_similarity(outside, mode_hue)
+cv.imshow("os", os)
+cv.waitKey(0)
+
+sbg = np.mean(os)
+sbg_sd = np.std(os)
+print("sbg: ", sbg)
+
+fg = s > sbg + 6 * sbg_sd
+cv.imshow("fg", fg / fg.max() * 255)
+cv.waitKey(0)
+
+area2 = np.sum(fg) / fg_max_area
+print("area2: ", area2)
+
 # background has been subtracted from both background,
 # so it is sufficient to just sum the foreground
 # max value of each pixel is 255
-
-fg_max_area = np.sum(apply_circular_mask(np.ones(wimg.shape), radius, shrink=margin))
 intensity = np.float(np.sum(fg)) / 255 / fg_max_area
+print("intensity: ", intensity)
 
-print("Intensity: ", intensity)
+intensity2 = np.float(np.sum(cv.subtract(s, sbg))) / fg_max_area
+print("intensity2: ", intensity2)
+
 
 
 cv.destroyAllWindows()
