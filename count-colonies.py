@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
 import numpy as np
 import cv2 as cv
+from functools import reduce
 
 
 # Show each color channel
@@ -307,24 +308,20 @@ def select_well(img, well):
     x0, y0, r = well
     return img[(y0-r):(y0+r), (x0-r):(x0+r)]
 
-def process_well_hough(img, cimg, well):
-    x0, y0, r = well
-    wimg = img[(y0-r):(y0+r), (x0-r):(x0+r)]
-    wcimg = cimg[(y0-r):(y0+r), (x0-r):(x0+r)]
-
+def find_circles_hough(wimg, wcimg):
     circles = cv.HoughCircles(wimg, cv.HOUGH_GRADIENT, 1, 3,
         param1 = 30, param2 = 20,
         minRadius = 3, maxRadius = 20)
     if circles is not None:
         circles = circles[0]
         circles = np.uint16(np.around(circles))
+        markers = np.int8(np.ones(wimg.shape))
         # draw circles
         for c in circles:
             x0, y0, r = c
             cv.circle(wcimg, (x0, y0), r, (0, 255, 0), 2)
-        #cv.imshow("well", wcimg)
-        #cv.waitKey(0)
-    return circles
+            cv.circle(markers, (x0, y0), r, -1, 1)
+    return (circles, markers)
 
 def apply_circular_mask(wimg, r, shrink=0):
     mask = np.zeros(wimg.shape, np.uint8)
@@ -398,69 +395,99 @@ mode_hue = find_mode_hue(cimg)
 #cv.imshow("bgr_sim_threshold", tsimg)
 #cv.waitKey(0)
 
-tsimg = filter_hsv_similarity(cimg, mode_hue)
-cv.imshow("hsv_sim_threshold", tsimg)
-cv.waitKey(0)
-
-marked = cimg.copy()
-markers = mark_boundaries(tsimg, marked)
-marked[markers == -1] = (0, 0, 255)
-cv.imshow("watershed", marked)
-cv.waitKey(0)
 
 
 well = wells[2]
 
-process_well_hough(img, cimg, well)
 
 
 wimg = select_well(img, well)
 wcimg = select_well(cimg, well)
 
-
 cv.imshow("well", wimg)
 cv.waitKey(0)
 
-
-
-timg = cv.adaptiveThreshold(wimg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, -2)
-cv.imshow("athreshold", timg)
+tsimg = filter_hsv_similarity(wcimg, mode_hue)
+cv.imshow("hsv_sim_threshold", tsimg)
 cv.waitKey(0)
 
-#timg = cv.medianBlur(timg, 5)
-#timg = cv.morphologyEx(timg, cv.MORPH_ERODE, kernel)
-timg = apply_circular_mask(timg, well[2], shrink=10)
-kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
-timg = cv.morphologyEx(timg, cv.MORPH_OPEN, kernel)
-cv.imshow("athreshold", timg)
-cv.waitKey(0)
+marked = wcimg.copy()
 
+markers1 = mark_boundaries(tsimg, marked)
+marked[markers1 == -1] = (255, 255, 0)
+cv.imshow("marked1", marked)
+cv.waitKey(0)
 
 
 local = find_local_maxima(wimg)
 cv.imshow("local", local)
 cv.waitKey(0)
 
-markers = mark_boundaries(local, wcimg)
-wcimg[markers == -1] = (255, 255, 0)
-cv.imshow("watershed2", wcimg)
+markers2 = mark_boundaries(local, wcimg)
+marked[markers2 == -1] = (255, 0, 255)
+cv.imshow("marked2", marked)
 cv.waitKey(0)
 
-print(np.histogram(markers))
 
-#cc = cv.connectedComponentsWithStats(timg, 8, cv.CV_32S)
-#cc = cv.connectedComponentsWithStats(local, 8, cv.CV_32S)
+timg = cv.adaptiveThreshold(wimg, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, -2)
+timg = apply_circular_mask(timg, well[2], shrink=10)
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+timg = cv.morphologyEx(timg, cv.MORPH_OPEN, kernel)
+cv.imshow("athreshold", timg)
+cv.waitKey(0)
 
-tmarkers = np.uint8(markers > 0) * 255
-tmarkers = cv.bitwise_not(tmarkers)
-# fill in the contours
-_, contours, hierarchy = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-print(contours)
-tmarkers = cv.drawContours(tmarkers, contours, -1, 255, thickness=-1)
+markers3 = mark_boundaries(timg, wcimg)
+marked[markers3 == -1] = (0, 255, 255)
+cv.imshow("marked3", marked)
+cv.waitKey(0)
+
+
+circles, markers4 = find_circles_hough(wimg, marked)
+cv.imshow("marked4", marked)
+cv.waitKey(0)
+
+markers_set = [markers1, markers2, markers3, markers4]
+
+# get combined borders
+#borders = reduce(cv.bitwise_or, [np.uint8(x == -1) * 255 for x in markers_set])
+#kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
+#borders = cv.dilate(borders, kernel)
+#cv.imshow("borders", borders)
+#cv.waitKey(0)
+
+
+def fill_in_markers(markers):
+    tmarkers = np.uint8(markers > 0) * 255
+    tmarkers = cv.bitwise_not(tmarkers)
+    # fill in the contours
+    _, contours, _ = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    tmarkers = cv.drawContours(tmarkers, contours, -1, 255, thickness=-1)
+    return tmarkers
+
+# get combined marker contour
+kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+tmarkers = reduce(cv.bitwise_or, [cv.erode(fill_in_markers(x), kernel) for x in markers_set])
 cv.imshow("tmarkers", tmarkers)
 cv.waitKey(0)
 
-cc = cv.connectedComponentsWithStats(tmarkers, 8, cv.CV_32S)
+_, contours, _ = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+print(contours)
+marked = wcimg.copy()
+marked = cv.drawContours(marked, contours, -1, (255, 255, 0), thickness=1)
+cv.imshow("marked", marked)
+cv.waitKey(0)
+
+
+cc1 = cv.connectedComponentsWithStats(fill_in_markers(markers1), 4, cv.CV_32S)
+cc4 = cv.connectedComponentsWithStats(fill_in_markers(markers4), 4, cv.CV_32S)
+
+# get areas of high confidence colonies
+areas = np.concatenate((cc1[2][1:, cv.CC_STAT_AREA], cc4[2][1:, cv.CC_STAT_AREA]))
+area_mean = np.mean(areas)
+area_sd = np.std(areas)
+print("mean", area_mean, ", sd:", area_sd)
+
+cc = cv.connectedComponentsWithStats(tmarkers, 4, cv.CV_32S)
 
 min_size = 10
 
@@ -471,16 +498,28 @@ centroids = cc[3][1:]
 idx = stats[:, cv.CC_STAT_AREA] > min_size
 print(stats[:, cv.CC_STAT_AREA])
 
-for c in centroids[idx]:
+ncolonies = 0
+for i in range(len(centroids)):
+    c = centroids[i]
+    area = stats[i, cv.CC_STAT_AREA]
     x0, y0 = np.uint16(np.around(c))
-    cv.circle(wcimg, (x0, y0), 2, (0, 255, 255), 2)
-
-cv.imshow("final", wcimg)
+    if area > min_size:
+        if area < area_mean + 2*area_sd:
+            n = 1
+        else:
+            # truncate
+            n = np.uint8(area / area_mean)
+        print(n)
+        ncolonies += n
+        cv.circle(marked, (x0, y0), n, (0, 255, 255), -1)
+     
+cv.imshow("final", marked)
 cv.waitKey(0)
 
-print("number of colonies:", sum(idx))
+print("number of colonies:", ncolonies)
 
 cv.destroyAllWindows()
 
 # TODO add circles found by hough transform into the certain_fg set for
 # watershed 
+
