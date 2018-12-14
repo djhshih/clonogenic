@@ -477,6 +477,45 @@ tmarkers = reduce(cv.bitwise_or, [cv.erode(fill_in_markers(x), kernel) for x in 
 cv.imshow("tmarkers", tmarkers)
 cv.waitKey(0)
 
+def refine(tmarkers, border):
+
+    kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+    border = cv.dilate(border, kernel, iterations=3)
+    certain_fg = cv.subtract(tmarkers, border)
+    cv.imshow("certain_fg!", certain_fg)
+    cv.waitKey(0)
+
+    # get bona fide background
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
+    certain_bg = cv.dilate(certain_fg, kernel, iterations=3)
+    cv.imshow("certain_bg!", certain_bg)
+    cv.waitKey(0)
+
+    # get unknown, border regions
+    unknown = cv.subtract(certain_bg, certain_fg)
+    cv.imshow("unknown!", unknown)
+    cv.waitKey(0)
+
+    _, markers = cv.connectedComponents(certain_fg, 4)
+    markers = markers + 1
+    markers[unknown > 0] = 0
+    cv.imshow("markers!", cv.applyColorMap(np.uint8(markers), cv.COLORMAP_JET))
+    cv.waitKey(0)
+
+    markers = cv.watershed(wcimg, markers)
+    marked = wcimg.copy()
+    marked[markers == -1] = (255, 255, 0)
+    cv.imshow("marked!", marked)
+    cv.waitKey(0)
+
+    tmarkers = fill_in_markers(markers)
+    cv.imshow("tmarkers!", tmarkers)
+    cv.waitKey(0)
+    return tmarkers
+
+#border = np.uint8(markers1 == -1)
+# refine(tmarkers border)
+
 _, contours, _ = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
 marked = wcimg.copy()
