@@ -8,7 +8,7 @@ from functools import reduce
 def show_color_channels(cimg):
     cv.imshow("blue", cimg[:,:,0])
     cv.imshow("green", cimg[:,:,1])
-    cv.imshow("red", cimg[:,:,2])
+    ctv.imshow("red", cimg[:,:,2])
 
 # identify most common hue from among saturated pixels
 def find_mode_hue(cimg):
@@ -115,6 +115,7 @@ def filter_hsv_similarity(cimg, ref_hue):
     _, tsimg = cv.threshold(dimg, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
     tsimg = cv.morphologyEx(tsimg, cv.MORPH_OPEN, kernel)
+    tsimg = cv.morphologyEx(tsimg, cv.MORPH_DILATE, kernel)
     return tsimg
 
 # Keep high-confidence hue foreground
@@ -136,23 +137,23 @@ def mark_boundaries(timg, cimg):
     # get bona fide background
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
     certain_bg = cv.dilate(timg, kernel, iterations=3)
-    cv.imshow("certain_bg", certain_bg)
-    cv.waitKey(0)
+    #cv.imshow("certain_bg", certain_bg)
+    #cv.waitKey(0)
 
     # get bona fide foreground based on distance transform
     dist = cv.distanceTransform(timg, cv.DIST_L2, 0)
     dist = np.uint8(dist / dist.max() * 255)
-    cv.imshow("dist", dist)
-    cv.waitKey(0)
+    #cv.imshow("dist", dist)
+    #cv.waitKey(0)
     _, certain_fg = cv.threshold(dist, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
     certain_fg = np.uint8(certain_fg)
-    cv.imshow("certain_fg", certain_fg)
-    cv.waitKey(0)
+    #cv.imshow("certain_fg", certain_fg)
+    #cv.waitKey(0)
 
     # get unknown, border regions
     unknown = cv.subtract(certain_bg, certain_fg)
-    cv.imshow("unknown", unknown)
-    cv.waitKey(0)
+    #cv.imshow("unknown", unknown)
+    #cv.waitKey(0)
 
     # label the pixels (baackground will be labeled as 0)
     _, markers = cv.connectedComponents(certain_fg)
@@ -162,8 +163,8 @@ def mark_boundaries(timg, cimg):
 
     # mark unknown regions as 0
     markers[unknown > 0] = 0
-    cv.imshow("markers", cv.applyColorMap(np.uint8(markers), cv.COLORMAP_JET))
-    cv.waitKey(0)
+    #cv.imshow("markers", cv.applyColorMap(np.uint8(markers), cv.COLORMAP_JET))
+    #cv.waitKey(0)
 
     # mark boundary regions with -1
     markers = cv.watershed(cimg, markers)
@@ -343,27 +344,24 @@ def apply_wells_mask(img, wells, shrink=0):
     return cv.bitwise_and(img, img, mask=mask)
 
 # find local maxima
-def find_local_maxima(wimg):
+def find_local_maxima(wimg, threshold=5):
     # using blurred image worsen results here
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (3,3))
     peak = cv.dilate(wimg, kernel, iterations=2)
     peak = cv.subtract(peak, wimg)
-    _, peak = cv.threshold(peak, 5, 255, cv.THRESH_BINARY)
+    _, peak = cv.threshold(peak, threshold, 255, cv.THRESH_BINARY)
     cv.imshow("peak", peak)
     cv.waitKey(0)
 
     flat = cv.erode(wimg, kernel, iterations=2)
     flat = cv.subtract(wimg, flat)
-    _, flat = cv.threshold(flat, 5, 255, cv.THRESH_BINARY)
+    _, flat = cv.threshold(flat, threshold, 255, cv.THRESH_BINARY)
     flat = cv.bitwise_not(flat)
     cv.imshow("flat", flat)
     cv.waitKey(0)
 
     peak[flat > 0] = 255
     local = cv.bitwise_not(peak)
-    local = apply_circular_mask(local, well[2], shrink=18)
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
-    local = cv.morphologyEx(local, cv.MORPH_CLOSE, kernel)
     return local
 
 
@@ -434,7 +432,9 @@ cv.waitKey(0)
 
 
 local = find_local_maxima(wimg)
-local = apply_circular_mask(local, radius, shrink=margin2)
+local = apply_circular_mask(local, well[2], shrink=margin2)
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+local = cv.morphologyEx(local, cv.MORPH_CLOSE, kernel)
 cv.imshow("local", local)
 cv.waitKey(0)
 
@@ -472,25 +472,43 @@ markers_set = [markers1, markers2, markers3, markers4]
 #cv.waitKey(0)
 
 
-def fill_in_markers(markers):
+def fill_in_markers(markers, value=255):
     tmarkers = np.uint8(markers > 0) * 255
     tmarkers = cv.bitwise_not(tmarkers)
     # fill in the contours
     _, contours, _ = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    tmarkers = cv.drawContours(tmarkers, contours, -1, 255, thickness=-1)
+    #_, contours, _ = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE)
+    # fill in the contour
+    tmarkers = cv.drawContours(tmarkers, contours, -1, value, thickness=-1)
+    # remove the border
+    tmarkers = cv.drawContours(tmarkers, contours, -1, 0, thickness=1, lineType=cv.LINE_8)
     return tmarkers
 
 # get combined marker contour
-kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
-tmarkers = reduce(cv.bitwise_or, [cv.erode(fill_in_markers(x), kernel) for x in markers_set])
+#kernel = cv.getStructuringElement(cv.MORPH_CROSS, (3,3))
+tmarkers = reduce(cv.add, [fill_in_markers(x) for x in markers_set])
 cv.imshow("tmarkers", tmarkers)
 cv.waitKey(0)
 
+#tmarkers = reduce(cv.add, [cv.erode(fill_in_markers(x, 1), kernel) for x in markers_set])
+#ttmarkers = cv.adaptiveThreshold(tmarkers, 255, cv.ADAPTIVE_THRESH_MEAN_C, 
+#        cv.THRESH_BINARY, 7, 1)
+#ttmarkers = find_local_maxima(tmarkers, threshold=0)
+#cv.imshow("ttmarkers", ttmarkers)
+#cv.waitKey(0)
+
+
 def refine(tmarkers, border):
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
-    border = cv.dilate(border, kernel, iterations=2)
+    border = cv.dilate(border, kernel)
+    #border = cv.GaussianBlur(border, (9,9), 0)
+    cv.imshow("border!", border)
+    cv.waitKey(0)
 
-    timg = cv.subtract(tmarkers, border)
+    #timg = tmarkers
+    timg = cv.subtract(tmarkers, np.uint8(border))
+    #kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
+    #timg = cv.morphologyEx(timg, cv.MORPH_CLOSE, kernel)
     cv.imshow("timg!", timg)
     cv.waitKey(0)
 
@@ -500,17 +518,19 @@ def refine(tmarkers, border):
     cv.imshow("certain_bg!", certain_bg)
     cv.waitKey(0)
 
-    dist = cv.distanceTransform(timg, cv.DIST_L2, 0)
-    dist = np.uint8(dist / dist.max() * 255)
-    cv.imshow("dist!", dist)
-    cv.waitKey(0)
-    _, certain_fg = cv.threshold(dist, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
-    certain_fg = np.uint8(certain_fg)
-    cv.imshow("certain_fg!", certain_fg)
-    cv.waitKey(0)
+    #dist = cv.distanceTransform(timg, cv.DIST_L2, 0)
+    #dist = np.uint8(dist / dist.max() * 255)
+    #cv.imshow("dist!", dist)
+    #cv.waitKey(0)
+    #_, certain_fg = cv.threshold(dist, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+    #certain_fg = np.uint8(certain_fg)
+    #cv.imshow("certain_fg!", certain_fg)
+    #cv.waitKey(0)
+    certain_fg = timg
 
     # get unknown, border regions
     unknown = cv.subtract(certain_bg, certain_fg)
+    #unknown = cv.bitwise_or(unknown, border)
     cv.imshow("unknown!", unknown)
     cv.waitKey(0)
 
@@ -521,6 +541,7 @@ def refine(tmarkers, border):
     cv.waitKey(0)
 
     markers = cv.watershed(wcimg, markers)
+
     marked = wcimg.copy()
     marked[markers == -1] = (255, 255, 0)
     cv.imshow("marked!", marked)
@@ -531,7 +552,7 @@ def refine(tmarkers, border):
     cv.waitKey(0)
     return tmarkers
 
-#border = np.uint8(markers1 == -1)
+#border = np.uint8(markers1 == -1) * 255;
 #tmarkers = refine(tmarkers, border)
 
 _, contours, _ = cv.findContours(tmarkers, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
@@ -553,7 +574,7 @@ print("mean", area_mean, ", sd:", area_sd)
 
 cc = cv.connectedComponentsWithStats(tmarkers, 4, cv.CV_32S)
 
-min_size = 10
+min_size = 9
 
 # centroids[0] is the background
 stats = cc[2][1:]
@@ -568,6 +589,7 @@ for i in range(len(centroids)):
     area = stats[i, cv.CC_STAT_AREA]
     x0, y0 = np.uint16(np.around(c))
     if area > min_size:
+        # TODO ideally, we would use intensity instead...
         if area < area_mean + 2*area_sd:
             n = 1
         else:
@@ -581,6 +603,8 @@ cv.waitKey(0)
 
 print("number of colonies:", ncolonies)
 
+fg_max_area = np.sum(apply_circular_mask(np.ones(wimg.shape), radius, shrink=margin))
+
 # subtract background
 mask = tmarkers
 bg = cv.bitwise_and(wimg, wimg, mask=cv.bitwise_not(tmarkers))
@@ -588,9 +612,6 @@ bg_mean = np.mean(bg)
 fg = cv.subtract(cv.bitwise_and(wimg, wimg, mask=tmarkers), bg_mean)
 cv.imshow("fg", fg)
 cv.waitKey(0)
-
-
-fg_max_area = np.sum(apply_circular_mask(np.ones(wimg.shape), radius, shrink=margin))
 
 area = np.sum(fg > 0) / fg_max_area
 
@@ -608,7 +629,7 @@ sbg_sd = np.std(os)
 print("sbg: ", sbg)
 
 fg = s > sbg + 6 * sbg_sd
-cv.imshow("fg", fg / fg.max() * 255)
+cv.imshow("fg2", fg / fg.max() * 255)
 cv.waitKey(0)
 
 area2 = np.sum(fg) / fg_max_area
@@ -624,9 +645,5 @@ intensity2 = np.float(np.sum(cv.subtract(s, sbg))) / fg_max_area
 print("intensity2: ", intensity2)
 
 
-
 cv.destroyAllWindows()
-
-# TODO add circles found by hough transform into the certain_fg set for
-# watershed 
 
