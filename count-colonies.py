@@ -600,6 +600,34 @@ cc1 = cv.connectedComponentsWithStats(fill_in_markers(markers1), 4, cv.CV_32S)
 cc4 = cv.connectedComponentsWithStats(fill_in_markers(markers4), 4, cv.CV_32S)
 
 # get areas of high confidence colonies
+
+def get_component(cc, i, img):
+    labels = cc[1]
+    stats = cc[2]
+    cleft = stats[i, cv.CC_STAT_LEFT]
+    ctop = stats[i, cv.CC_STAT_TOP]
+    cwidth = stats[i, cv.CC_STAT_WIDTH]
+    cheight = stats[i, cv.CC_STAT_HEIGHT]
+    csimg = img[ctop:(ctop+cheight), cleft:(cleft+cwidth)]
+    cmask = np.uint8(labels[ctop:(ctop+cheight), cleft:(cleft+cwidth)] == i)
+    comp = cv.bitwise_and(csimg, csimg, mask=cmask)
+    #cv.imshow("comp", comp)
+    #cv.waitKey(0)
+    return comp
+
+def get_component_intensities(cc, img, bg):
+    n = len(cc[2])
+    x = np.empty((n,))
+    x[0] = 0.0
+    for i in range(1, n):
+        c = get_component(cc, i, img)
+        x[i] = np.sum(cv.subtract(c, bg))
+    return x
+
+#cc1_intensities = get_component_intensities(cc1, simg, outside_bg_mean)
+#cc4_intensities = get_component_intensities(cc4, simg, outside_bg_mean)
+#areas = np.concatenate((cc1_intensities, cc4_intensities))
+
 areas = np.concatenate((cc1[2][1:, cv.CC_STAT_AREA], cc4[2][1:, cv.CC_STAT_AREA]))
 area_mean = np.mean(areas)
 area_sd = np.std(areas)
@@ -609,20 +637,17 @@ cc = cv.connectedComponentsWithStats(tmarkers, 4, cv.CV_32S)
 
 min_size = 9
 
-# centroids[0] is the background
-stats = cc[2][1:]
-centroids = cc[3][1:]
-
-idx = stats[:, cv.CC_STAT_AREA] > min_size
-print(stats[:, cv.CC_STAT_AREA])
+labels = cc[1]
+stats = cc[2]
+centroids = cc[3]
 
 ncolonies = 0
-for i in range(len(centroids)):
+# i == 0 refers to background
+for i in range(1, len(centroids)):
     c = centroids[i]
     area = stats[i, cv.CC_STAT_AREA]
     x0, y0 = np.uint16(np.around(c))
     if area > min_size:
-        # TODO ideally, we would use intensity instead...
         if area < area_mean + 2*area_sd:
             n = 1
         else:
