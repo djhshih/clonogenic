@@ -374,12 +374,14 @@ pr.add_argument("input", help="input image file")
 
 argv = pr.parse_args()
 
+margin = 8
+
 cimg = cv.imread(argv.input)
 cv.imshow("original", cimg)
 
-cimg_raw = cimg.copy()
-
 print(cimg.shape)
+
+
 
 # convert to grayscale, invert, and denoise
 img = cv.cvtColor(cimg, cv.COLOR_BGR2GRAY)
@@ -391,7 +393,7 @@ cv.waitKey(0)
 wells = find_wells(img, (2,3))
 print(wells)
 
-margin = 8
+cimg2 = cimg.copy()
 
 img = apply_wells_mask(img, wells, margin)
 cimg = apply_wells_mask(cimg, wells, margin)
@@ -399,6 +401,14 @@ cv.imshow("bg_masked", img)
 cv.waitKey(0)
 
 mode_hue = find_mode_hue(cimg)
+
+outside = apply_wells_imask(cimg2, wells, shrink=-margin)
+os = hsv_color_similarity(outside, mode_hue)
+cv.imshow("os", os)
+cv.waitKey(0)
+
+outside_bg_mean = np.mean(os)
+outside_bg_sd = np.std(os)
 
 #tsimg = filter_bgr_similarity(cimg, (95, 0, 27))
 #cv.imshow("bgr_sim_threshold", tsimg)
@@ -496,6 +506,29 @@ cv.waitKey(0)
 #ttmarkers = find_local_maxima(tmarkers, threshold=0)
 #cv.imshow("ttmarkers", ttmarkers)
 #cv.waitKey(0)
+
+# find outside colonies
+
+# get preliminary foreground
+bg = cv.bitwise_and(wimg, wimg, mask=cv.bitwise_not(tmarkers))
+bg_mean = np.mean(bg)
+fg = cv.subtract(cv.bitwise_and(wimg, wimg, mask=tmarkers), bg_mean)
+
+# get bona fide foreground
+simg = apply_circular_mask(hsv_color_similarity(wcimg, mode_hue), radius, shrink=margin)
+fg_bf = simg > outside_bg_mean + 6 * outside_bg_sd
+cv.imshow("fg_bf", fg_bf / fg_bf.max() * 255)
+cv.waitKey(0)
+
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+missed = np.subtract(np.uint8(fg_bf), cv.dilate(np.uint8(fg > 0), kernel)) * 255
+missed = cv.morphologyEx(missed, cv.MORPH_OPEN, kernel)
+cv.imshow("missed", missed)
+cv.waitKey(0)
+
+tmarkers = cv.bitwise_or(tmarkers, missed)
+cv.imshow("tmarkers | missed", tmarkers)
+cv.waitKey(0)
 
 
 def refine(tmarkers, border):
@@ -617,22 +650,17 @@ area = np.sum(fg > 0) / fg_max_area
 
 print("area: ", area)
 
-s = apply_circular_mask(hsv_color_similarity(wcimg, mode_hue), radius, shrink=margin)
-outside = apply_wells_imask(cimg_raw, wells, shrink=-margin)
-
-os = hsv_color_similarity(outside, mode_hue)
-cv.imshow("os", os)
+fg_bf = simg > outside_bg_mean + 6 * outside_bg_sd
+cv.imshow("fg_bf", fg_bf / fg_bf.max() * 255)
 cv.waitKey(0)
 
-sbg = np.mean(os)
-sbg_sd = np.std(os)
-print("sbg: ", sbg)
-
-fg = s > sbg + 6 * sbg_sd
-cv.imshow("fg2", fg / fg.max() * 255)
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5,5))
+missed = np.subtract(np.uint8(fg_bf), cv.dilate(np.uint8(fg > 0), kernel))
+missed = cv.morphologyEx(missed, cv.MORPH_OPEN, kernel)
+cv.imshow("missed", missed * 255)
 cv.waitKey(0)
 
-area2 = np.sum(fg) / fg_max_area
+area2 = np.sum(fg_bf) / fg_max_area
 print("area2: ", area2)
 
 # background has been subtracted from both background,
@@ -641,7 +669,7 @@ print("area2: ", area2)
 intensity = np.float(np.sum(fg)) / 255 / fg_max_area
 print("intensity: ", intensity)
 
-intensity2 = np.float(np.sum(cv.subtract(s, sbg))) / fg_max_area
+intensity2 = np.float(np.sum(cv.subtract(simg, outside_bg_mean))) / fg_max_area
 print("intensity2: ", intensity2)
 
 
